@@ -5,6 +5,24 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.0.2] - 2026-11-06
+
+### 🚀 Features
+
+- *(runtime)* Pointed and join kernels plus categorical law proofs
+
+### 📈 Benchmarks
+
+- *(runtime)* Criterion kernel-floor benchmark with enforced gates
+
+### 📚 Documentation
+
+- *(readme)* Record milestone M1 status, kernel coverage, lint posture
+
+### 🎨 Styling
+
+- Clippy pedantic at deny with zero allow-list exemptions
+
 ## [0.0.1] - 2026-11-06
 
 ### 🚀 Features
