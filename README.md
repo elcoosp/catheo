@@ -18,19 +18,45 @@ Per the roadmap in the architecture document:
 |---|---|
 | Pipeline AST + syntax-directed parser (`catheo-parser`) | done (M0) |
 | Barrier annotation at parse time (§3.2) | done (M0) |
-| `pipeline!` macro with naive sequential lowering (deforestation lands in M2) | done (M0) |
+| `pipeline!` macro with naive sequential lowering | done (M0) |
 | `trybuild` error tests with spanned diagnostics (§6.2) | done (M0) |
 | Criterion parse benchmarks + §6.3 expansion-budget gate | done (M0) |
 | Split-trait runtime + `Vec` / `Option` / `Result` kernels (M1 gate: kernel unit tests on stable Rust) | done (M1) |
 | `pure` / `join` runtime kernels (§4.3 v0.1 combinators) | done (M1) |
 | Categorical law proofs: functor identity/composition, monad left/right identity, associativity, `join ∘ map(pure) = id` | done (M1) |
 | Kernel-floor criterion benchmark + 1M-element linearity gate | done (M1) |
+| Linear-time deforestation pass, §3.3 Rules 1–3 + component/AST views | done (M2) |
+| SSA fused lowering: pure-`fold` absorption (Rule 4), fused `collect` runs, §6.3 token-budget fallback | done (M2) |
+| `pipeline_unfused!` — the sequential oracle macro | done (M2) |
+| **M2 gate**: fused == unfused property harness over randomized inputs (§6.2), 19 shapes × xorshift sweeps × `Vec`/`Option`/`Result` | done (M2) |
 | Clippy pedantic at **deny** with zero allow-list exemptions (`#[expect]` only where §2.2 mandates) | done (M1) |
 | CI (fmt, clippy, pinned-toolchain tests, bench smoke, nightly `-Zmacro-stats`) | done |
 | git-cliff changelog + tag-driven GitHub releases | done |
 
-Next: **M2** — the linear-time deforestation pass and SSA codegen (the law
-proofs shipped in M1 are its correctness foundation).
+Next: **M3** — the Criterion A/B/C benchmark suite (naive closures vs
+iterator chains vs macro output), the decision gate before any public API
+commit.
+
+### M2 notes — what fuses, and why
+
+`pipeline!` now runs the deforestation pass (§3.3). A pure `fold` absorbs
+its entire trailing `map`/`bind` run into one imperative `.fold(init, g)`
+eliminator — the flagship `map → map → fold` pipeline allocates zero
+intermediate containers. `collect` pipelines fuse their trailing
+barrier-free run into one adapter pass. Barrier stages (`filter`, or a
+`bind` whose closure observes container shape) stay monomorphic kernel
+calls. Every claim is enforced by the fused-vs-unfused property harness,
+not asserted.
+
+Two stable-rustc constraints shape the emitted code (documented in
+`catheo-parser`'s codegen module): composed closures `|x| g(f(x))` fail
+E0282 on inner closure literals even in `Fn`-bounded positions, so the
+emitter chains *components* through `.map`/`.flat_map`/`.fold`; and a
+stable macro cannot form a `Witness::Type<T>` container mid-chain (the
+`collect()` selection only resolves through concrete types), so the
+pre-suffix prefix keeps the sequential-kernel shape. Both walls are the
+§5.1 transitional posture in miniature; the next-solver removes them
+without breaking user code.
 
 ## Usage
 
@@ -54,7 +80,10 @@ fusion barrier), `fold` (universal eliminator), `collect`. Witnesses:
 (`|x| …`) or bare callables (`bind: parse_tokens`). The §4.3 `pure` and
 `join` kernels are available on the runtime layer as of M1
 (`CategoricalPointed::run_pure`, `CategoricalMonad::run_join`); their
-`pipeline!` grammar integration lands with the M2 codegen pass.
+`pipeline!` grammar integration is deferred past M2. As of M2 there is a
+second macro, `pipeline_unfused!` (the sequential lowering): it is the
+oracle of the §6.2 property gate and a debugging aid — expanding a suspect
+pipeline through both macros isolates any mis-rewrite to the fusion pass.
 
 ```rust
 use catheo::{pipeline, ResultWitness};
