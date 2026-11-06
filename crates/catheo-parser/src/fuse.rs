@@ -28,7 +28,7 @@
 //! and Rule 4's absorption stops at such a stage. False positives are
 //! acceptable; false negatives are not.
 
-use crate::ast::{Closure, Param, Stage, StageKind};
+use crate::ast::{Closure, Param, Stage, StageKind, StageModifier};
 use proc_macro2::Span;
 use quote::{format_ident, quote_spanned};
 
@@ -177,6 +177,7 @@ impl FusedStage<'_> {
                 span: self.span,
                 fusion_barrier: self.fusion_barrier,
                 structural_observer: self.structural_observer,
+                modifier: StageModifier::None,
             };
         };
         let mut closure = (*first).clone();
@@ -189,6 +190,7 @@ impl FusedStage<'_> {
             span: self.span,
             fusion_barrier: self.fusion_barrier,
             structural_observer: self.structural_observer,
+            modifier: StageModifier::None,
         }
     }
 }
