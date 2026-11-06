@@ -32,7 +32,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
-    name: test (trybuild pinned + §6.3/kernel gates)
+    name: test (trybuild pinned + §6.2 fusion properties + §6.3/kernel gates)
     # Pinned to the exact toolchain that generated the `tests/ui/*.stderr`
     # snapshots: rustc diagnostics are not stable across versions and
     # trybuild compares byte-for-byte (§6.2). The §6.3 expansion-budget and
