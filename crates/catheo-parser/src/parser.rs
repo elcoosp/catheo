@@ -233,7 +233,7 @@ fn parse_fold(kw_span: Span, input: ParseStream<'_>) -> syn::Result<Terminal> {
     let is_pure = is_lexically_pure(&closure.body);
     Ok(Terminal::Fold {
         init,
-        closure,
+        closure: Box::new(closure),
         span: kw_span,
         is_pure,
     })
@@ -331,6 +331,12 @@ fn split_at_top_level_comma(tokens: &TokenStream) -> (TokenStream, TokenStream) 
 impl Closure {
     /// Parse a closure with exactly `arity` identifier parameters: stage
     /// combinators take one, `fold` takes two (`Fn(A, T) -> A`).
+    ///
+    /// # Errors
+    /// A spanned [`syn::Error`] when the input is neither a callable
+    /// expression nor a closure with exactly `arity` identifier parameters
+    /// (mismatched arity, a non-identifier parameter, or a malformed
+    /// `-> Ret` ascription). Diagnostics point at the offending token (§6.2).
     pub fn parse_with_arity(input: ParseStream<'_>, arity: usize) -> syn::Result<Self> {
         // Callable form (`bind: parse_tokens`): anything that is not a
         // closure header is captured raw and let the kernel's `Fn` bound
