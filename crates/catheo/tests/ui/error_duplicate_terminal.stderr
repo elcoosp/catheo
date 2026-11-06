@@ -1,0 +1,5 @@
+error: duplicate terminal entry: a pipeline has exactly one terminal, and `collect` must be its last entry
+ --> tests/ui/error_duplicate_terminal.rs:8:9
+  |
+8 |         collect,
+  |         ^^^^^^^
