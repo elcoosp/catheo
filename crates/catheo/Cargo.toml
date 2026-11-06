@@ -35,3 +35,7 @@ harness = false
 [[bench]]
 name = "error_chains"
 harness = false
+
+[[bench]]
+name = "combinators"
+harness = false
