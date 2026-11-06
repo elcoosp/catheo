@@ -10,22 +10,27 @@ representation**.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
-## Status — milestone M0 ✅
+## Status — milestone M1 ✅
 
 Per the roadmap in the architecture document:
 
 | Deliverable | State |
 |---|---|
-| Pipeline AST + syntax-directed parser (`catheo-parser`) | done |
-| Barrier annotation at parse time (§3.2) | done |
-| Layer 0 HKT witnesses + Layer 1 split-trait kernels for `Vec` / `Option` / `Result` | done |
-| `pipeline!` macro with naive sequential lowering (deforestation lands in M2) | done |
-| `trybuild` error tests with spanned diagnostics (§6.2) | done |
-| Criterion benchmarks + §6.3 expansion-budget gate (≤ 5 ms/pipeline) | done |
+| Pipeline AST + syntax-directed parser (`catheo-parser`) | done (M0) |
+| Barrier annotation at parse time (§3.2) | done (M0) |
+| `pipeline!` macro with naive sequential lowering (deforestation lands in M2) | done (M0) |
+| `trybuild` error tests with spanned diagnostics (§6.2) | done (M0) |
+| Criterion parse benchmarks + §6.3 expansion-budget gate | done (M0) |
+| Split-trait runtime + `Vec` / `Option` / `Result` kernels (M1 gate: kernel unit tests on stable Rust) | done (M1) |
+| `pure` / `join` runtime kernels (§4.3 v0.1 combinators) | done (M1) |
+| Categorical law proofs: functor identity/composition, monad left/right identity, associativity, `join ∘ map(pure) = id` | done (M1) |
+| Kernel-floor criterion benchmark + 1M-element linearity gate | done (M1) |
+| Clippy pedantic at **deny** with zero allow-list exemptions (`#[expect]` only where §2.2 mandates) | done (M1) |
 | CI (fmt, clippy, pinned-toolchain tests, bench smoke, nightly `-Zmacro-stats`) | done |
 | git-cliff changelog + tag-driven GitHub releases | done |
 
-Next: **M2** — the linear-time deforestation pass and SSA codegen.
+Next: **M2** — the linear-time deforestation pass and SSA codegen (the law
+proofs shipped in M1 are its correctness foundation).
 
 ## Usage
 
@@ -43,10 +48,13 @@ let total: usize = pipeline! {
 assert_eq!(total, 4);
 ```
 
-Combinators in v0.0.1: `map`, `bind`, `filter` (absolute fusion barrier),
-`fold` (universal eliminator), `collect`. Witnesses: `VecWitness`,
-`OptionWitness`, `ResultWitness<E>`. Stages accept closures (`|x| …`) or
-bare callables (`bind: parse_tokens`).
+Combinators in the `pipeline!` grammar: `map`, `bind`, `filter` (absolute
+fusion barrier), `fold` (universal eliminator), `collect`. Witnesses:
+`VecWitness`, `OptionWitness`, `ResultWitness<E>`. Stages accept closures
+(`|x| …`) or bare callables (`bind: parse_tokens`). The §4.3 `pure` and
+`join` kernels are available on the runtime layer as of M1
+(`CategoricalPointed::run_pure`, `CategoricalMonad::run_join`); their
+`pipeline!` grammar integration lands with the M2 codegen pass.
 
 ```rust
 use catheo::{pipeline, ResultWitness};
@@ -66,6 +74,8 @@ let count: usize = pipeline! {
 |---|---|---|---|
 | `run_map` | ✅ | ✅ | ✅ |
 | `run_bind` | ✅ (flat_map) | ✅ (and_then) | ✅ (and_then) |
+| `run_pure` | ✅ (single) | ✅ (Some) | ✅ (Ok) |
+| `run_join` | ✅ (concat) | ✅ (and_then(id)) | ✅ (and_then(id)) |
 | `run_filter` | ✅ | ✅ | ❌ by design¹ |
 | `run_fold` | ✅ | ✅ | ✅ (Err → init) |
 | `into_iter` | ✅ | ✅ | ✅ |
@@ -77,21 +87,29 @@ let count: usize = pipeline! {
 
 ```sh
 cargo fmt --all -- --check     # style gate
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace         # unit + behavioral + trybuild UI tests
-cargo bench --bench parse      # §6.3 expansion budget + parser throughput
+cargo clippy --workspace --all-targets -- -D warnings   # pedantic, deny, zero allow-list
+cargo test --workspace         # unit + behavioral + trybuild UI + §6.3/kernel gates
+cargo bench --bench parse      # parser throughput (§6.3 floor)
+cargo bench --bench kernels    # Layer-2 kernel floor (§2.3)
 ```
 
-The benchmark suite also runs `expansion_budget_gate`, a deterministic test
-asserting parse+emit stays within the §6.3 budget. The CI `test` job pins
-`rustc 1.99.1` because `trybuild` snapshots depend on rustc's diagnostic
-rendering.
+The lint posture is *pedantic with no exemptions*: the workspace sets
+`clippy::pedantic` to `deny` and contains no `#[allow]` anywhere. The only
+suppressions are `#[expect]` attributes at sites the architecture itself
+mandates (`#[inline(always)]` kernels, §2.2), and `#[expect]` errors the
+moment its lint stops firing.
+
+Two deterministic performance gates run as ordinary tests in
+`cargo test --workspace`: the §6.3 expansion-budget gate (parse+emit well
+under budget) and the kernel-linearity gate (a 1M-element map+fold stays
+far below one second). The CI `test` job pins `rustc 1.99.1` because
+`trybuild` snapshots depend on rustc's diagnostic rendering.
 
 Releases are Conventional-Commits-driven: merge to `master`, then push a
 `v*.*.*` tag — [git-cliff](https://git-cliff.org) renders the changelog and
 the `release.yml` workflow publishes the GitHub release.
 
-## Known limitations (v0.0.1 subset of §7)
+## Known limitations (v0.0.2 subset of §7)
 
 1. **Closure shape is constrained.** Closure parameters must be plain
    identifiers (with optional `: Type` / `-> Ret` ascriptions); destructure
@@ -102,10 +120,12 @@ the `release.yml` workflow publishes the GitHub release.
    `Err` anywhere blocks fusion. False positives are acceptable; false
    negatives are not. (Escape hatches arrive in v0.2.)
 3. **No strict `Monad` on stable.** The split-trait dual-witness layer
-   ([`CategoricalMonad::run_bind`] keeps a strict-`Monad`-compatible
+   (`CategoricalMonad::run_bind` keeps a strict-`Monad`-compatible
    signature) is a documented transitional architecture pending
    `-Znext-solver` stabilization.
-4. **No `traverse`**, no Kleisli `>=>` — scheduled for v0.2+.
+4. **No `traverse`**, no Kleisli `>=>` — scheduled for v0.2+. The `pure`
+   and `join` kernels exist on the runtime layer (M1); their `pipeline!`
+   grammar integration lands with M2.
 5. **LLVM is not controlled.** The performance claims are validated
    empirically per pipeline, not guaranteed universally (the M3 gate).
 
