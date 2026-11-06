@@ -1,0 +1,24 @@
+error[E0277]: cannot add `&str` to `i32`
+ --> tests/ui/error_stage_type_mismatch.rs:8:20
+  |
+8 |         map: |x| x + "not a number",
+  |                    ^ no implementation for `i32 + &str`
+  |
+  = help: the trait `Add<&str>` is not implemented for `i32`
+help: the following other types implement trait `Add<Rhs>`
+ --> $RUST/core/src/ops/arith.rs
+  |
+  = note: `i32` implements `Add`
+ ::: $RUST/core/src/ops/arith.rs
+  |
+  = note: in this macro invocation
+ --> $RUST/core/src/internal_macros.rs
+  |
+  = note: `&i32` implements `Add<i32>`
+ ::: $RUST/core/src/internal_macros.rs
+  |
+  = note: `i32` implements `Add<&i32>`
+ ::: $RUST/core/src/internal_macros.rs
+  |
+  = note: `&i32` implements `Add`
+  = note: this error originates in the macro `add_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
