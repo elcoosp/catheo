@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/catheo",
+    "crates/catheo-macros",
+    "crates/catheo-parser",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+repository = "https://github.com/elcoosp/catheo"
+description = "Category theory at the speed of Rust: categorical pipelines compiled to flat imperative loops."
+authors = ["elcoosp"]
+
+[workspace.dependencies]
+# Third-party (pinned to latest crates.io releases at M0 time, researched 2026-11-06)
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = { version = "3.0.9", default-features = false, features = ["derive", "parsing", "printing", "proc-macro", "clone-impls", "extra-traits"] }
+trybuild = "1.0.122"
+criterion = "0.8.2"
+
+# Internal
+catheo-parser = { path = "crates/catheo-parser", version = "0.0.1" }
+catheo-macros = { path = "crates/catheo-macros", version = "0.0.1" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = { level = "allow", priority = 1 }
+missing_errors_doc = { level = "allow", priority = 1 }
+missing_panics_doc = { level = "allow", priority = 1 }
+# ARCHITECTURE.md §2.2 mandates #[inline(always)] on kernel implementations.
+inline_always = { level = "allow", priority = 1 }
+
+# Release profile tuning: proc-macro workspace, keep binaries lean and builds debuggable.
+[profile.bench]
+debug = true
