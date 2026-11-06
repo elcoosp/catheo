@@ -21,8 +21,9 @@
 
 // The generated code refers to the runtime through the absolute path
 // `::catheo::…`; this alias makes that work inside this crate's own unit
-// tests and doctests. Unused at the top level, hence the allow.
-#[allow(unused_extern_crates)]
+// tests and doctests. Unused at the top level: the expectation documents
+// exactly that and errors if the lint ever stops firing.
+#[expect(unused_extern_crates)]
 extern crate self as catheo;
 
 pub mod categorical;
@@ -31,6 +32,7 @@ pub mod witness;
 
 pub use categorical::{
     CategoricalFilter, CategoricalFold, CategoricalFunctor, CategoricalIntoIter, CategoricalMonad,
+    CategoricalPointed,
 };
 pub use catheo_macros::pipeline;
 pub use hkt::HKT;
