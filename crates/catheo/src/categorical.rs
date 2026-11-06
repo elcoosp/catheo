@@ -81,6 +81,147 @@ pub trait CategoricalFold: HKT {
         F: Fn(A, T) -> A;
 }
 
+/// A type with an associative binary operation and an identity element —
+/// the algebra `fold_map` eliminates into (§4.3 v0.2).
+///
+/// The laws (`e ∘ a == a == a ∘ e`, `(a ∘ b) ∘ c == a ∘ (b ∘ c)`) are
+/// exactly what makes `fold_map`'s two lowerings interchangeable: the
+/// fused `.map(f).fold(identity, combine)` chain and the kernel's
+/// element-wise elimination produce the same value for any element order.
+/// Numeric impls pick *sum* (documented choice — Rust has no distinct
+/// `Sum`/`Product` traits at the type level to disambiguate).
+pub trait Monoid {
+    /// The identity element: combining it with any value is that value.
+    #[must_use]
+    fn identity() -> Self;
+
+    /// The associative binary operation.
+    #[must_use]
+    fn combine(self, other: Self) -> Self;
+}
+
+macro_rules! impl_sum_monoid {
+    ($($t:ty),* $(,)?) => {$(
+        impl Monoid for $t {
+            fn identity() -> Self {
+                0
+            }
+
+            fn combine(self, other: Self) -> Self {
+                self + other
+            }
+        }
+    )*};
+}
+
+impl_sum_monoid!(
+    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize
+);
+
+macro_rules! impl_sum_monoid_float {
+    ($($t:ty),* $(,)?) => {$(
+        impl Monoid for $t {
+            fn identity() -> Self {
+                0.0
+            }
+
+            fn combine(self, other: Self) -> Self {
+                self + other
+            }
+        }
+    )*};
+}
+
+impl_sum_monoid_float!(f32, f64);
+
+impl Monoid for () {
+    fn identity() -> Self {}
+
+    fn combine(self, other: Self) -> Self {
+        let (): () = other;
+    }
+}
+
+impl Monoid for String {
+    fn identity() -> Self {
+        String::new()
+    }
+
+    fn combine(mut self, other: Self) -> Self {
+        self.push_str(&other);
+        self
+    }
+}
+
+impl<T> Monoid for Vec<T> {
+    fn identity() -> Self {
+        Vec::new()
+    }
+
+    fn combine(mut self, mut other: Self) -> Self {
+        self.append(&mut other);
+        self
+    }
+}
+
+impl<T: Monoid> Monoid for Option<T> {
+    fn identity() -> Self {
+        None
+    }
+
+    fn combine(self, other: Self) -> Self {
+        match (self, other) {
+            (Some(inner), Some(other)) => Some(inner.combine(other)),
+            (Some(inner), None) | (None, Some(inner)) => Some(inner),
+            (None, None) => None,
+        }
+    }
+}
+
+impl<A: Monoid, B: Monoid> Monoid for (A, B) {
+    fn identity() -> Self {
+        (<A as Monoid>::identity(), <B as Monoid>::identity())
+    }
+
+    fn combine(self, other: Self) -> Self {
+        (self.0.combine(other.0), self.1.combine(other.1))
+    }
+}
+
+/// Monoid-valued universal eliminator (§4.3 v0.2 `fold_map`).
+///
+/// `run_fold_map(container, f)` maps each element to a monoid value and
+/// combines them from the identity — the eliminator for "aggregate a
+/// metric over the elements" pipelines, where the accumulator type is the
+/// metric's monoid rather than a user-supplied `init`.
+pub trait CategoricalFoldMap: HKT {
+    /// Map every element through `f` and combine from [`Monoid::identity`].
+    fn run_fold_map<T, M, F>(container: Self::Type<T>, f: F) -> M
+    where
+        M: Monoid,
+        F: Fn(T) -> M;
+}
+
+/// Kleisli composition `f >=> g` (§4.3 v0.2).
+///
+/// Returns `A -> W::Type<C>` that runs `f` and feeds every success through
+/// `g` — value-identical to `bind(f)` followed by `bind(g)`, which is the
+/// desugaring the `kleisli:` pipeline entry performs at parse time.
+///
+/// The witness argument is the §4.1 head anchor in function form: the ZST
+/// is never read, it only pins `W` (and thereby the container types) by
+/// inference.
+#[expect(clippy::inline_always)]
+#[inline(always)]
+pub fn kleisli<W, A, B, C, F, G>(_witness: W, f: F, g: G) -> impl Fn(A) -> W::Type<C>
+where
+    W: CategoricalMonad,
+    F: Fn(A) -> W::Type<B>,
+    G: Fn(B) -> W::Type<C>,
+{
+    move |a| W::run_bind(f(a), &g)
+}
+
 /// Container-to-iterator lowering, used by `collect` and `fold` terminals.
 pub trait CategoricalIntoIter: HKT {
     /// The owning iterator type for this container.
@@ -140,6 +281,21 @@ impl CategoricalFold for VecWitness {
         F: Fn(A, T) -> A,
     {
         container.into_iter().fold(init, f)
+    }
+}
+
+impl CategoricalFoldMap for VecWitness {
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_fold_map<T, M, F>(container: Self::Type<T>, f: F) -> M
+    where
+        M: Monoid,
+        F: Fn(T) -> M,
+    {
+        container
+            .into_iter()
+            .map(f)
+            .fold(<M as Monoid>::identity(), <M as Monoid>::combine)
     }
 }
 
@@ -210,6 +366,20 @@ impl CategoricalFold for OptionWitness {
     }
 }
 
+impl CategoricalFoldMap for OptionWitness {
+    // One discriminant test — the idiomatic elimination on a
+    // zero-or-one-element container (the §6.1 M4 posture).
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_fold_map<T, M, F>(container: Self::Type<T>, f: F) -> M
+    where
+        M: Monoid,
+        F: Fn(T) -> M,
+    {
+        container.map_or_else(<M as Monoid>::identity, f)
+    }
+}
+
 impl CategoricalIntoIter for OptionWitness {
     type Item<T> = std::option::IntoIter<T>;
 
@@ -266,6 +436,20 @@ impl<E> CategoricalFold for ResultWitness<E> {
             Ok(item) => f(init, item),
             Err(_) => init,
         }
+    }
+}
+
+impl<E> CategoricalFoldMap for ResultWitness<E> {
+    // One discriminant test; `Err` contributes the identity (the same
+    // "Err → init" denotation `run_fold` documents).
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_fold_map<T, M, F>(container: Self::Type<T>, f: F) -> M
+    where
+        M: Monoid,
+        F: Fn(T) -> M,
+    {
+        container.map_or_else(|_| <M as Monoid>::identity(), f)
     }
 }
 
