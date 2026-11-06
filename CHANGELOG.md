@@ -5,6 +5,26 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.0.5] - 2026-11-06
+
+### 🚀 Features
+
+- *(bench)* §6.1 Result-chain and Kleisli criterion suites (M4)
+- *(parser)* Pointwise witnesses keep the kernel chain (§6.1 M4 gate)
+
+### 📚 Documentation
+
+- *(readme)* Record milestone M4 status and the measured error-chain gate
+- *(bench)* Align the Result-chain C doc with the pointwise emission
+
+### 🧪 Testing
+
+- *(gates)* Deterministic §6.1 error-chain and Kleisli gates (M4)
+
+### ⚙️ Continuous Integration
+
+- Error_chains bench smoke (fourth target)
+
 ## [0.0.4] - 2026-11-06
 
 ### 🚀 Features
