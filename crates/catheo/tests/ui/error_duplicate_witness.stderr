@@ -1,0 +1,5 @@
+error: duplicate `witness` entry: a pipeline has exactly one head-anchored witness
+ --> tests/ui/error_duplicate_witness.rs:6:9
+  |
+6 |         witness: catheo::OptionWitness,
+  |         ^^^^^^^
