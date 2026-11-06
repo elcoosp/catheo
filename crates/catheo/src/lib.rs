@@ -34,6 +34,6 @@ pub use categorical::{
     CategoricalFilter, CategoricalFold, CategoricalFunctor, CategoricalIntoIter, CategoricalMonad,
     CategoricalPointed,
 };
-pub use catheo_macros::pipeline;
+pub use catheo_macros::{pipeline, pipeline_unfused};
 pub use hkt::HKT;
 pub use witness::{OptionWitness, ResultWitness, VecWitness};
