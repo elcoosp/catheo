@@ -8,6 +8,80 @@
 
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote, quote_spanned};
+use syn::spanned::Spanned;
+
+/// Derive a witness path from a `source: expr as Type` ascription (§4.2).
+///
+/// Only the three §2.1 built-ins derive: the *last* path segment decides
+/// (so `std::vec::Vec<T>` derives too, mirroring
+/// `is_zero_or_one_element_witness`'s spelling posture). The derived
+/// witness is spelled `::catheo::…`, so the expansion needs no user
+/// import beyond the macro itself.
+///
+/// # Errors
+/// A spanned [`syn::Error`] at the type when it is not a path type, names
+/// no built-in type constructor, or names `Result` without both type
+/// arguments.
+pub fn witness_from_type(ty: &syn::Type) -> syn::Result<syn::Path> {
+    const DERIVABLE: &str = "only `Vec<T>`, `Option<T>` and `Result<T, E>` \
+         ascriptions derive a witness; name the witness with `witness:` instead";
+    let syn::Type::Path(type_path) = ty else {
+        return Err(syn::Error::new(
+            ty.span(),
+            format!("cannot derive a witness from this type: {DERIVABLE}"),
+        ));
+    };
+    let Some(segment) = type_path.path.segments.last() else {
+        return Err(syn::Error::new(
+            ty.span(),
+            "cannot derive a witness from an empty path",
+        ));
+    };
+    let generic_args = match &segment.arguments {
+        syn::PathArguments::AngleBracketed(args) => Some(args),
+        syn::PathArguments::None => None,
+        syn::PathArguments::Parenthesized(_) => {
+            return Err(syn::Error::new(
+                segment.ident.span(),
+                "cannot derive a witness from a function type",
+            ));
+        }
+    };
+    match segment.ident.to_string().as_str() {
+        "Vec" => Ok(syn::parse_quote!(::catheo::VecWitness)),
+        "Option" => Ok(syn::parse_quote!(::catheo::OptionWitness)),
+        "Result" => {
+            let args = generic_args.ok_or_else(|| {
+                syn::Error::new(
+                    segment.ident.span(),
+                    "cannot derive a witness from a bare `Result`: ascribe \
+                     both type arguments, e.g. `source: r as Result<T, E>`",
+                )
+            })?;
+            let arguments: Vec<&syn::GenericArgument> = args.args.iter().collect();
+            let [_, err_arg] = arguments.as_slice() else {
+                return Err(syn::Error::new(
+                    args.span(),
+                    format!(
+                        "`Result` takes two type arguments; ascribe both, \
+                         e.g. `source: r as Result<T, E>` ({DERIVABLE})"
+                    ),
+                ));
+            };
+            let syn::GenericArgument::Type(err_ty) = err_arg else {
+                return Err(syn::Error::new(
+                    err_arg.span(),
+                    "the second `Result` argument must be a type",
+                ));
+            };
+            Ok(syn::parse_quote!(::catheo::ResultWitness<#err_ty>))
+        }
+        other => Err(syn::Error::new(
+            segment.ident.span(),
+            format!("cannot derive a witness from `{other}`: {DERIVABLE}"),
+        )),
+    }
+}
 
 /// Head-anchored witness of a pipeline (§4.1).
 ///
@@ -26,9 +100,16 @@ pub struct Witness {
 #[derive(Debug, Clone)]
 pub struct Source {
     /// Raw expression tokens, e.g. `input_vector` or `make_items(1, 8)`.
+    /// When [`Self::ascription`] is present this is the expression *head*
+    /// only — the `as Type` suffix is parsed out (§4.2).
     pub tokens: TokenStream,
     /// Span of the first source token.
     pub span: Span,
+    /// `source: expr as Type` — the ascribed type, recorded for the
+    /// emitter (§4.2: the expansion re-anchors the head expression with a
+    /// `: Type` annotation so the user's written type still participates
+    /// in inference).
+    pub ascription: Option<syn::Type>,
 }
 
 /// Kind of a pipeline stage (§3.1).
@@ -136,6 +217,29 @@ impl Closure {
     }
 }
 
+/// The §4.2 escape hatch written on a stage, if any.
+///
+/// The flags this drives are computed at parse time into
+/// [`Stage::fusion_barrier`] / [`Stage::structural_observer`]; the
+/// modifier is kept so tests and diagnostics can see *why* a stage is
+/// (or is not) a barrier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StageModifier {
+    /// Written plainly (`map:`, `bind:`) — flags from the §3.2 heuristics.
+    #[default]
+    None,
+    /// `map!: force` / `bind!: force` — the structural-observer flag is
+    /// suppressed and the stage fuses (documented as unsound if the
+    /// closure really observes structure). On a `map` the hatch is
+    /// accepted but inert: maps are unconditional fusion targets.
+    Force,
+    /// `map!: materialize` / `bind!: materialize` — the stage is a hard
+    /// barrier and lowers to its own kernel call, so an intermediate
+    /// container is materialized no matter what the fusion pass would
+    /// otherwise do.
+    Materialize,
+}
+
 /// One pipeline stage with its parse-time barrier annotations (§3.2).
 #[derive(Debug, Clone)]
 pub struct Stage {
@@ -143,15 +247,20 @@ pub struct Stage {
     pub kind: StageKind,
     /// The stage closure.
     pub closure: Closure,
-    /// Span of the stage keyword (`map:`, `bind:`, `filter:`).
+    /// Span of the stage keyword (`map:`, `bind:`, `filter:`) — or, for a
+    /// `kleisli:`-desugared stage, of the morphism itself, so diagnostics
+    /// point at the exact member of the chain (§3.4).
     pub span: Span,
-    /// `true` blocks upstream fusion: always for [`StageKind::Filter`], and
-    /// for a [`StageKind::Bind`] whose closure is a structural observer.
+    /// `true` blocks upstream fusion: always for [`StageKind::Filter`],
+    /// for a [`StageKind::Bind`] whose closure is a structural observer,
+    /// and for every [`StageModifier::Materialize`] stage.
     pub fusion_barrier: bool,
     /// Conservative lexical approximation (§3.2): the closure body mentions
     /// container-shape tokens (`.len`, `.is_empty`, `.iter`, `Some`, `None`,
     /// `Ok`, `Err`). False positives are acceptable; false negatives are not.
     pub structural_observer: bool,
+    /// The §4.2 escape hatch written on this stage, if any.
+    pub modifier: StageModifier,
 }
 
 /// Pipeline terminal (§3.1).
@@ -175,6 +284,16 @@ pub enum Terminal {
     },
     /// Collect the final container back out of the witness.
     Collect(Span),
+    /// Monoid-valued eliminator (§4.3 v0.2): map each element to a
+    /// [`crate::ast`] closure's monoid value and combine from the identity.
+    /// No `init` and no purity question: the accumulator never appears in
+    /// user code, so Rule 4 absorption is always sound for it.
+    FoldMap {
+        /// `Fn(T) -> M` closure producing the per-element monoid value.
+        closure: Box<Closure>,
+        /// Span of the `fold_map` keyword.
+        span: Span,
+    },
     /// No terminal: the pipeline evaluates to the last stage's container.
     None,
 }
@@ -234,7 +353,7 @@ impl PartialEq for Terminal {
                     && closure == their_closure
                     && is_pure == their_is_pure
             }
-            (Self::None | Self::Collect(_), _) => {
+            (Self::None | Self::Collect(_) | Self::FoldMap { .. }, _) => {
                 core::mem::discriminant(self) == core::mem::discriminant(other)
             }
             _ => false,
