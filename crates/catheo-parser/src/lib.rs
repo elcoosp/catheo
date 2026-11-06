@@ -27,7 +27,10 @@ pub mod parser;
 #[cfg(test)]
 mod parser_tests;
 
-pub use ast::{Closure, Param, Pipeline, Source, Stage, StageKind, Terminal, Witness};
+pub use ast::{
+    Closure, Param, Pipeline, Source, Stage, StageKind, StageModifier, Terminal, Witness,
+    witness_from_type,
+};
 pub use codegen::{Lowering, emit, emit_sequential, emit_with_lowering, token_count};
 pub use fuse::{
     FusedStage, absorbable_components, absorbable_suffix, compose, fuse_components, fuse_stages,
