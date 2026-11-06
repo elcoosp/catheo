@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [main]
   pull_request:
 
 env:
@@ -53,22 +53,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.3
       # Shortened measurement window: this job gates compile-and-run health
-      # of both bench targets. The deterministic §6.3 expansion-budget and
-      # kernel-linearity gates run under the plain `cargo test --workspace`
-      # job (they are integration tests in `tests/`). The full comparison
-      # suite (A/B/C, §6.1) lands with milestone M3. Scoped per target: a
+      # of all three bench targets. The deterministic gates (§6.1 decision
+      # gates, §6.3 expansion budget, kernel linearity) run under the plain
+      # `cargo test --workspace` job (they are integration tests in
+      # `tests/`); the §6.1 verdict itself is read from criterion output
+      # and published in the README's "M3 notes". Scoped per target: a
       # workspace-wide `cargo bench` would feed criterion's flags to the
       # libtest harnesses, which reject them.
       - run: cargo bench -p catheo-parser --bench parse -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
       - run: cargo bench -p catheo --bench kernels -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
+      - run: cargo bench -p catheo --bench abc -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
 
   macro-stats:
     name: nightly -Zmacro-stats (§5.3)
     # The architecture requires expansion statistics on every CI build from
     # the first commit: expansion time and generated token volume are
-    # tracked, and a breach of the §6.3 budget rejects the PR. This job is
-    # advisory (nightly breakage must not block unrelated work) but its
-    # artifact is the evidence trail for the budget.
+    # tracked, and a breach of the §6.3 budget rejects the PR. The
+    # 50-pipeline fixture (`crates/catheo/tests/expansion_fixture.rs`) is
+    # the §6.1 compile-time corpus this job measures. The job is advisory
+    # (nightly breakage must not block unrelated work) but its artifact is
+    # the evidence trail for the budget.
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
