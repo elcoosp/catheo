@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy (-D warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2.9.3
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test (trybuild pinned)
+    # Pinned to the exact toolchain that generated the `tests/ui/*.stderr`
+    # snapshots: rustc diagnostics are not stable across versions and
+    # trybuild compares byte-for-byte (§6.2).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2.9.3
+      - run: cargo test --workspace --all-features
+
+  benches:
+    name: benchmarks (smoke + §6.3 budget gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.3
+      # Shortened measurement window: this job gates compile-and-run health.
+      # The deterministic §6.3 expansion-budget gate runs under the plain
+      # `cargo test --workspace` job (it is a #[test] in the bench target).
+      # The full comparison suite (A/B/C, §6.1) lands with milestone M3.
+      - run: cargo bench -p catheo-parser --bench parse -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
+
+  macro-stats:
+    name: nightly -Zmacro-stats (§5.3)
+    # The architecture requires expansion statistics on every CI build from
+    # the first commit: expansion time and generated token volume are
+    # tracked, and a breach of the §6.3 budget rejects the PR. This job is
+    # advisory (nightly breakage must not block unrelated work) but its
+    # artifact is the evidence trail for the budget.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo build --workspace --all-targets -vv 2>&1 | tee macro-stats.log
+        env:
+          RUSTFLAGS: -Zmacro-stats
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macro-stats
+          path: macro-stats.log
+          if-no-files-found: warn
