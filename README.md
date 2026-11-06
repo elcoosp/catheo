@@ -10,9 +10,11 @@ representation**.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
-## Status — milestone M4 ✅
+## Status — milestone M5 ✅ (public v0.1.0)
 
-Per the roadmap in the architecture document:
+Per the roadmap in the architecture document, M5 closes the v0.1 arc:
+M0–M4 gates met and re-verified green at the release; the §7 limitations
+are published below in full.
 
 | Deliverable | State |
 |---|---|
@@ -36,12 +38,13 @@ Per the roadmap in the architecture document:
 | §6.1 Result-chain benchmark: 10-stage bind-heavy `ResultWitness` pipeline, cold (stage-3 overflow short-circuit) and warm, three-way A/B/C × 10k/100k/1M | done (M4) |
 | §6.1 Kleisli benchmark: two-morphism Kleisli chain over `OptionWitness`, three-way A/B/C × 10k/100k/1M | done (M4) |
 | **M4 gate**: C ≥ B on both — **forced a lowering refinement**: the first run failed the gate (adapter-chain absorption measured 1.2–2.7× slower on zero-or-one-element witnesses), the responsible lowering was re-examined per the §6.1 protocol, and pointwise witnesses now keep the kernel chain (`run_bind` = `and_then`); measured verdict: parity on the Result chains, C 2–8% faster on the Kleisli chain | done (M4) |
+| **M5 gate**: M0–M4 gates re-run green at the release; two malformed-pipeline holes found and fixed on the release audit (a stage written below `fold:`/`collect:` silently floated ahead of it, and a second terminal silently discarded the first — both now spanned §6.2 errors, pinned by unit + trybuild UI tests); §7 limitations published in full (below); dependencies re-verified against crates.io — all five at the latest stable | done (M5) |
 | Clippy pedantic at **deny** with zero allow-list exemptions (`#[expect]` only where §2.2 mandates) | done (M1) |
 | CI (fmt, clippy, pinned-toolchain tests, bench smoke over all four bench targets, nightly `-Zmacro-stats`) | done |
 | git-cliff changelog + tag-driven GitHub releases | done |
 
-Next: **M5** — the public v0.1 release (M0–M4 gates met; the §7
-limitations below are the published form).
+M5 is the **public v0.1 release**: tag `v0.1.0`, rendered by git-cliff and
+published by `release.yml`.
 
 ### M2 notes — what fuses, and why
 
@@ -182,6 +185,26 @@ cold and warm; and emission lockstep: ten `run_bind`s + one `run_fold`
 for the Result chain, two + one for the Kleisli chain, no iterators at
 all, with the Vec contrast (Rule 4 absorption) asserted alongside.
 
+### M5 notes — the release audit
+
+The release re-ran every gate on the pinned toolchain (`rustc 1.99.1`):
+`cargo test --workspace` (the §6.2 property harness, the §6.3 expansion
+budget, the kernel-linearity gate, the M3/M4 deterministic decision gates,
+the trybuild UI suite), clippy pedantic at deny, and all four bench
+targets. The §6.1 verdicts reproduce: barrier-free `Vec` pipelines sit at
+parity with idiomatic iterator chains, map-heavy/fold-heavy C > A at
+2–4.5×, the filter-chain barrier cost and the error-chain/kleisli parity
+match the published M3/M4 tables (run-to-run cells swing with the shared
+runner; the deterministic allocation and emission-lockstep gates are the
+stable form of the same claims).
+
+The audit also caught the two parser holes fixed for the release — both
+silent-acceptance bugs where the emitted code could not keep the written
+order (the terminal consumes the container): a stage below the terminal
+was floated ahead of it, and a second terminal replaced the first. Both
+are rejected now, spanned at the offending keyword, the same §6.2 posture
+as the duplicate-witness error.
+
 ## Usage
 
 ```rust
@@ -260,11 +283,14 @@ under budget) and the kernel-linearity gate (a 1M-element map+fold stays
 far below one second). The CI `test` job pins `rustc 1.99.1` because
 `trybuild` snapshots depend on rustc's diagnostic rendering.
 
-Releases are Conventional-Commits-driven: merge to `master`, then push a
+Releases are Conventional-Commits-driven: merge to `main`, then push a
 `v*.*.*` tag — [git-cliff](https://git-cliff.org) renders the changelog and
 the `release.yml` workflow publishes the GitHub release.
 
-## Known limitations (v0.0.2 subset of §7)
+## Known limitations (v0.1 — the published §7 set)
+
+This is the complete §7 limitation list of the architecture document, in
+its published v0.1 form:
 
 1. **Closure shape is constrained.** Closure parameters must be plain
    identifiers (with optional `: Type` / `-> Ret` ascriptions); destructure
@@ -278,19 +304,20 @@ the `release.yml` workflow publishes the GitHub release.
    (`CategoricalMonad::run_bind` keeps a strict-`Monad`-compatible
    signature) is a documented transitional architecture pending
    `-Znext-solver` stabilization.
-4. **No `traverse`**, no Kleisli `>=>` — scheduled for v0.2+. The `pure`
-   and `join` kernels exist on the runtime layer (M1); their `pipeline!`
-   grammar integration lands with M2.
+4. **No `traverse`**, no Kleisli `>=>` — scheduled for v0.2+ (§4.3). The
+   `pure` and `join` kernels exist on the runtime layer (M1); their
+   `pipeline!` grammar integration is deferred past M2 with them.
 5. **LLVM is not controlled.** The performance claims are validated
    empirically per pipeline, not guaranteed universally (the M3/M4
-   gates). The measured boundary as of M4: barrier-free `Vec` pipelines
-   match idiomatic iterator chains; pointwise (`Option`/`Result`)
-   pipelines emit the idiomatic kernel chain outright — the M4 gate
-   caught the adapter-chain lowering at 1.2–2.7× and forced the
-   pointwise refinement; a `filter` barrier costs extra passes over the
-   materialized barrier state (§3.3 Rule 3, re-examined and upheld); and
-   micro-gaps within ±5% on single shapes are inside shared-runner
-   noise (the M4 100k cells swing ±14% in both directions).
+   gates). The measured boundary as of M4, re-verified at M5:
+   barrier-free `Vec` pipelines match idiomatic iterator chains;
+   pointwise (`Option`/`Result`) pipelines emit the idiomatic kernel
+   chain outright — the M4 gate caught the adapter-chain lowering at
+   1.2–2.7× and forced the pointwise refinement; a `filter` barrier costs
+   extra passes over the materialized barrier state (§3.3 Rule 3,
+   re-examined and upheld); and micro-gaps within ±5% on single shapes
+   are inside shared-runner noise (the M4 100k cells swing ±14% in both
+   directions).
 
 ## License
 
