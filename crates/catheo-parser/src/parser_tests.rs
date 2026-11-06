@@ -300,6 +300,79 @@ fn duplicate_witness_is_rejected() {
 }
 
 #[test]
+fn stage_after_a_fold_terminal_is_rejected() {
+    // A stage written below the terminal cannot keep its written position:
+    // the terminal consumes the container, so emitting the stage first (the
+    // only sound lowering) would silently change the user's semantics.
+    // §6.2: malformed pipelines are rejected with a spanned error.
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        fold: (0, |acc, x| acc + x),
+        map: |x| x * 2,
+    });
+    assert!(
+        err.contains("after the terminal"),
+        "error must name the terminal-ordering rule: {err}"
+    );
+    assert!(err.contains("map"), "error must name the offender: {err}");
+}
+
+#[test]
+fn stage_after_a_collect_terminal_is_rejected() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        collect,
+        filter: |x| *x > 0,
+    });
+    assert!(
+        err.contains("after the terminal"),
+        "error must name the terminal-ordering rule: {err}"
+    );
+    assert!(
+        err.contains("filter"),
+        "error must name the offender: {err}"
+    );
+}
+
+#[test]
+fn duplicate_fold_terminal_is_rejected() {
+    // A second terminal silently replacing the first would drop user code
+    // without a diagnostic — the same class as the duplicate-witness error.
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        fold: (0, |acc, x| acc + x),
+        fold: (1, |acc, x| acc * x),
+    });
+    assert!(
+        err.contains("duplicate terminal"),
+        "error must name the duplication: {err}"
+    );
+    assert!(err.contains("fold"), "error must name the offender: {err}");
+}
+
+#[test]
+fn collect_after_a_fold_terminal_is_rejected() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        map: |x| x * 2,
+        fold: (0, |acc, x| acc + x),
+        collect,
+    });
+    assert!(
+        err.contains("duplicate terminal"),
+        "collect below a fold is a second terminal: {err}"
+    );
+    assert!(
+        err.contains("collect"),
+        "error must name the offender: {err}"
+    );
+}
+
+#[test]
 fn unknown_combinator_is_rejected_spanning_the_keyword() {
     let err = parse_err(quote! {
         witness: VecWitness,
