@@ -175,11 +175,13 @@ fn result_chain_idiomatic(input: Vec<Result<i64, ChainError>>) -> i64 {
     })
 }
 
-/// C: the macro-flattened output — the exact benchmark pipeline. (The
-/// Result binds lower to the same witness-agnostic `.flat_map` as the
-/// Option binds below; pedantic's `flat_map_option` only fires on
+/// C: the macro-flattened output — the exact benchmark pipeline. On this
+/// pointwise witness the fused lowering keeps the kernel chain: every
+/// `run_bind` *is* `Result::and_then`, and the fold terminal stays
+/// `run_fold` (the §6.1 M4 refinement; pinned by the emission-lockstep
+/// gate below). Pedantic's `flat_map_option` only fires on
 /// Option-returning closures, so it is [`kleisli_fused`] that carries the
-/// documented expectation.)
+/// documented expectation.
 fn result_chain_fused(input: Vec<Result<i64, ChainError>>) -> i64 {
     input.into_iter().fold(0_i64, |total, element| {
         total
