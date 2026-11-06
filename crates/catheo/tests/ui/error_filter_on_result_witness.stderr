@@ -1,0 +1,14 @@
+error[E0277]: the trait bound `ResultWitness<String>: CategoricalFilter` is not satisfied
+ --> tests/ui/error_filter_on_result_witness.rs:6:18
+  |
+6 |         witness: catheo::ResultWitness<String>,
+  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CategoricalFilter` is not implemented for `ResultWitness<String>`
+  |
+help: the following other types implement trait `CategoricalFilter`
+ --> src/categorical.rs
+  |
+  | impl CategoricalFilter for VecWitness {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `VecWitness`
+...
+  | impl CategoricalFilter for OptionWitness {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `OptionWitness`
