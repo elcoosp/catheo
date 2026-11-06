@@ -52,15 +52,16 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "catheo"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "catheo-macros",
+ "criterion",
  "trybuild",
 ]
 
 [[package]]
 name = "catheo-macros"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "catheo-parser",
  "proc-macro2",
@@ -70,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "catheo-parser"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "criterion",
  "proc-macro2",
