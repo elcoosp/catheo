@@ -59,32 +59,40 @@ fn readme_publishes_every_section_7_limitation_under_the_v01_heading() {
 }
 
 #[test]
-fn workspace_version_is_the_public_v0_1() {
+fn workspace_version_is_the_public_release_version() {
     let manifest = read("Cargo.toml");
     let version = manifest
         .lines()
         .find_map(|line| line.trim().strip_prefix("version = "))
         .expect("the workspace manifest declares a version");
     assert_eq!(
-        version, "\"0.1.0\"",
-        "M5 is the public v0.1 release; bump the workspace version"
+        version, "\"0.2.0\"",
+        "the current release is v0.2.0 (M5 shipped 0.1.0); bump the workspace version"
     );
 }
 
 #[test]
-fn changelog_documents_the_0_1_0_release() {
+fn changelog_documents_the_releases() {
     let changelog = read("CHANGELOG.md");
     assert!(
+        changelog.contains("## [0.2.0]"),
+        "the git-cliff changelog must document the 0.2.0 release: {changelog}"
+    );
+    assert!(
         changelog.contains("## [0.1.0]"),
-        "the git-cliff changelog must document the 0.1.0 release: {changelog}"
+        "the changelog keeps the v0.1.0 release history: {changelog}"
     );
 }
 
 #[test]
-fn readme_status_records_the_m5_release() {
+fn readme_status_records_the_release_history() {
     let readme = read("README.md");
     assert!(
+        readme.contains("milestone v0.2") && readme.contains("escape hatches"),
+        "the README status must record the v0.2 milestone"
+    );
+    assert!(
         readme.contains("milestone M5") && readme.contains("v0.1.0"),
-        "the README status must record the M5 release"
+        "the README status keeps the M5 release history"
     );
 }
