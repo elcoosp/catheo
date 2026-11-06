@@ -1,0 +1,5 @@
+error: expected `witness: <Witness>` as the head anchor of the pipeline (§4.1)
+ --> tests/ui/error_missing_witness.rs:5:9
+  |
+5 |         source: xs,
+  |         ^^^^^^
