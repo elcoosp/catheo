@@ -1,0 +1,23 @@
+[package]
+name = "catheo-counting-alloc"
+description = "Deterministic allocation counting for catheo's CI gates; dev-support only, never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints.rust]
+missing_docs = "deny"
+rust_2018_idioms = { level = "deny", priority = -1 }
+
+# The house posture (clippy pedantic at deny, zero allow-list) holds here
+# too. What differs from the shipped crates is deliberate: the workspace's
+# `unsafe_code = "forbid"` cannot apply to the one place that must touch
+# `GlobalAlloc`. This crate is the *entire* unsafe surface of the
+# repository — a counting shim over `std::alloc::System` — and it is a
+# dev-dependency only, so no shipped artifact links it.
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
