@@ -1,0 +1,11 @@
+error: cannot derive a witness from `MyVec`: only `Vec<T>`, `Option<T>` and `Result<T, E>` ascriptions derive a witness; name the witness with `witness:` instead
+ --> tests/ui/error_ascription_non_derivable.rs:6:23
+  |
+6 |         source: xs as MyVec,
+  |                       ^^^^^
+
+error[E0425]: cannot find type `MyVec` in this scope
+ --> tests/ui/error_ascription_non_derivable.rs:4:17
+  |
+4 |     let xs: Vec<MyVec> = Vec::new();
+  |                 ^^^^^ not found in this scope
