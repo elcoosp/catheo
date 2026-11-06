@@ -1,0 +1,5 @@
+error: expected `source: <expression>` after the witness
+ --> tests/ui/error_missing_source.rs:5:9
+  |
+5 |         map: |x| x,
+  |         ^^^
