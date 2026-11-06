@@ -1,0 +1,13 @@
+error: escape hatches apply to `map` and `bind` stages only
+ --> tests/ui/error_terminal_bang.rs:8:9
+  |
+8 |         fold_map!: force |x| x,
+  |         ^^^^^^^^
+
+warning: unused import: `VecWitness`
+ --> tests/ui/error_terminal_bang.rs:1:14
+  |
+1 | use catheo::{VecWitness, pipeline};
+  |              ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
