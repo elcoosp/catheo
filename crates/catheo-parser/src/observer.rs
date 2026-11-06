@@ -28,9 +28,11 @@ fn scan_observer(tokens: &TokenStream, after_dot: bool) -> bool {
     for tt in tokens.clone() {
         match tt {
             TokenTree::Ident(ref ident) => {
-                let name = ident.to_string();
-                if OBSERVER_IDENTS.contains(&name.as_str())
-                    || (after_dot && OBSERVER_METHODS.contains(&name.as_str()))
+                // `Ident: PartialEq<&str>` — no String is built on the scan
+                // path (§3.1/§5.3: the lexical approximations run for every
+                // bind at parse time).
+                if OBSERVER_IDENTS.iter().any(|marker| ident == marker)
+                    || (after_dot && OBSERVER_METHODS.iter().any(|marker| ident == marker))
                 {
                     return true;
                 }
