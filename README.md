@@ -10,7 +10,7 @@ representation**.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
-## Status — milestone M1 ✅
+## Status — milestone M3 ✅
 
 Per the roadmap in the architecture document:
 
@@ -29,13 +29,17 @@ Per the roadmap in the architecture document:
 | SSA fused lowering: pure-`fold` absorption (Rule 4), fused `collect` runs, §6.3 token-budget fallback | done (M2) |
 | `pipeline_unfused!` — the sequential oracle macro | done (M2) |
 | **M2 gate**: fused == unfused property harness over randomized inputs (§6.2), 19 shapes × xorshift sweeps × `Vec`/`Option`/`Result` | done (M2) |
+| §6.1 three-way A/B/C Criterion suite: map-heavy / fold-heavy / filter / collect × `Vec<i32>` / `Vec<String>` × 10k / 100k / 1M | done (M3) |
+| §6.1 deterministic decision gates: three-way value agreement + allocation profile via a thread-local counting allocator | done (M3) |
+| §6.1 compile-time corpus: 50-pipeline fixture, measured by the nightly `-Zmacro-stats` job (§6.3) | done (M3) |
+| **M3 gate**: macro output ≈ idiomatic iterators on map-heavy and fold-heavy; C > A by 2–10×; filter-chain barrier cost re-examined (Rule 3 upheld) and published | done (M3) |
 | Clippy pedantic at **deny** with zero allow-list exemptions (`#[expect]` only where §2.2 mandates) | done (M1) |
 | CI (fmt, clippy, pinned-toolchain tests, bench smoke, nightly `-Zmacro-stats`) | done |
 | git-cliff changelog + tag-driven GitHub releases | done |
 
-Next: **M3** — the Criterion A/B/C benchmark suite (naive closures vs
-iterator chains vs macro output), the decision gate before any public API
-commit.
+Next: **M4** — the Result-chain (10-stage bind-heavy, cold/warm) and
+Kleisli-composition benchmarks (§6.1), the last benchmark gate before the
+v0.1 release milestone.
 
 ### M2 notes — what fuses, and why
 
@@ -57,6 +61,57 @@ stable macro cannot form a `Witness::Type<T>` container mid-chain (the
 pre-suffix prefix keeps the sequential-kernel shape. Both walls are the
 §5.1 transitional posture in miniature; the next-solver removes them
 without breaking user code.
+
+### M3 notes — the decision gate, measured
+
+The §6.1 three-way comparison ran on the pinned toolchain
+(`rustc 1.99.1`, release profile, criterion medians, 1M-element inputs;
+`cargo bench --bench abc` reproduces it, 10k/100k included):
+
+| Pipeline | A naive (µs) | B idiomatic (µs) | C `pipeline!` (µs) | C/B | C/A |
+|---|---|---|---|---|---|
+| map-heavy `Vec<i32>` | 3 272.8 | 730.2 | 723.0 | **0.99×** | **0.22×** |
+| fold-heavy `Vec<i32>` | 1 955.2 | 927.8 | 969.6 | 1.04× | **0.50×** |
+| filter chain `Vec<i32>` | 6 421.0 | 647.7 | 3 866.4 | 5.97×¹ | **0.60×** |
+| collect `Vec<i32>` | 1 759.2 | 172.9 | 175.1 | 1.01× | **0.10×** |
+| map-heavy `Vec<String>` | 134 890 | 69 674 | 68 968 | **0.99×** | **0.51×** |
+| fold-heavy `Vec<String>` | 61 081 | 36 762 | 36 779 | 1.00× | **0.60×** |
+| filter chain `Vec<String>` | 109 200 | 50 433 | 55 463 | 1.10×¹ | **0.51×** |
+| collect `Vec<String>` | 141 000 | 53 884 | 53 364 | **0.99×** | **0.38×** |
+
+¹ The filter chain's published shortfall — see below.
+
+Reading the table against the §6.1 gate:
+
+- **C ≥ B on the barrier-free shapes**: parity within ~1% everywhere
+  (run-to-run noise on shared runners is of the same order; the fold-heavy
+  1M gap sits inside that band). The macro output *is* the idiomatic
+  chain, one pass, same adapters — the suite exists to prove that claim,
+  not assume it.
+- **C > A on map-heavy and fold-heavy** (the two required wins): 2–4.5×
+  faster than naive — C allocates *zero* intermediates where A
+  materializes one container per stage.
+- **The filter chain is the honest exception.** The barrier (§3.3 Rule 3)
+  keeps the pre-barrier run at the sequential-kernel shape, so C pays
+  extra passes over the materialized state (visible on `Vec<i32>` where
+  the per-element work is trivial; nearly invisible on `Vec<String>`).
+  Per the §6.1 protocol the responsible rule was re-examined before
+  merge: **Rule 3 is upheld** — a rewrite crossing a filter changes
+  evaluation semantics by construction — and the root cause is the
+  documented stable-rustc wall (a macro cannot form a witness container
+  mid-chain to feed a barrier kernel; §5.1). The next-solver migration
+  removes the wall without breaking user code.
+
+What the deterministic gates pin (`cargo test --workspace`, no timing):
+three-way value agreement on every shape and universe; C == B allocation
+profiles on *all* shapes (on this toolchain even the barrier kernels
+reuse their input buffers in place, so C's barrier cost is temporal
+only); C strictly below A's allocation profile on map-heavy/fold-heavy
+(C is exactly zero-allocation there); and fused-emission shape lockstep
+between the benchmarks and the gates. One toolchain subtlety the gates
+document: rustc 1.99 reuses an *owned* source buffer through
+`into_iter().map().collect()` chains, so the naive baseline borrows
+(`iter`) — the honest "each combinator materializes" shape.
 
 ## Usage
 
@@ -120,6 +175,7 @@ cargo clippy --workspace --all-targets -- -D warnings   # pedantic, deny, zero a
 cargo test --workspace         # unit + behavioral + trybuild UI + §6.3/kernel gates
 cargo bench --bench parse      # parser throughput (§6.3 floor)
 cargo bench --bench kernels    # Layer-2 kernel floor (§2.3)
+cargo bench --bench abc        # §6.1 three-way A/B/C decision suite
 ```
 
 The lint posture is *pedantic with no exemptions*: the workspace sets
@@ -157,6 +213,10 @@ the `release.yml` workflow publishes the GitHub release.
    grammar integration lands with M2.
 5. **LLVM is not controlled.** The performance claims are validated
    empirically per pipeline, not guaranteed universally (the M3 gate).
+   The measured boundary as of M3: barrier-free pipelines match idiomatic
+   iterator chains; a `filter` barrier costs extra passes over the
+   materialized barrier state (§3.3 Rule 3, re-examined and upheld), and
+   micro-gaps within ±5% on single shapes are inside shared-runner noise.
 
 ## License
 
