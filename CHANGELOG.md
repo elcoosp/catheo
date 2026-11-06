@@ -5,6 +5,20 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.1.0] - 2026-11-06
+
+### 🐛 Bug Fixes
+
+- *(parser)* Reject stages below the terminal and duplicate terminals
+
+### 📚 Documentation
+
+- *(gates)* Align the Result-chain C doc with the pointwise dispatch
+- *(readme)* Record milestone M5 status and the release audit
+
+### 🧪 Testing
+
+- *(release)* Deterministic M5 release gates
 ## [0.0.5] - 2026-11-06
 
 ### 🚀 Features
@@ -25,6 +39,9 @@ are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 - Error_chains bench smoke (fourth target)
 
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Git-cliff changelog for 0.0.5
 ## [0.0.4] - 2026-11-06
 
 ### 🚀 Features
@@ -44,6 +61,10 @@ are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 ### ⚙️ Continuous Integration
 
 - Abc bench smoke, macro-stats fixture note, fix push branch filter
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Git-cliff changelog for 0.0.4
 ## [0.0.3] - 2026-11-06
 
 ### 🚀 Features
