@@ -1,0 +1,5 @@
+error: `map` after the terminal: `fold`/`collect` must be the last entry of a pipeline
+ --> tests/ui/error_stage_after_terminal.rs:8:9
+  |
+8 |         map: |x| x * 2,
+  |         ^^^
