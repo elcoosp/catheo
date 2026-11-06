@@ -189,11 +189,19 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
     let mut parts: Vec<TokenStream> = Vec::new();
 
     // state_source — the raw source expression, bound directly: a `let`
-    // initializer needs no extra grouping.
+    // initializer needs no extra grouping. A §4.2 ascription re-anchors the
+    // head expression with the user's written `: Type`, so the type they
+    // spelled still participates in inference (the `as` cast itself is
+    // never emitted — casting into a container is not valid Rust).
     let source = &pipeline.source.tokens;
-    parts.push(quote_spanned! {pipeline.source.span=>
-        let __catheo_source = #source;
-    });
+    match &pipeline.source.ascription {
+        Some(ty) => parts.push(quote_spanned! {pipeline.source.span=>
+            let __catheo_source : #ty = #source;
+        }),
+        None => parts.push(quote_spanned! {pipeline.source.span=>
+            let __catheo_source = #source;
+        }),
+    }
 
     let mut current = quote!(__catheo_source);
 
@@ -203,15 +211,18 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
     // (see the module docs, the §6.1 M4 evidence).
     let pointwise = fuse && is_zero_or_one_element_witness(witness);
 
-    // The trailing barrier-free run: absorbed by a pure fold, chained into
-    // a `collect`/container terminal, or (impure fold) absent. Barrier
-    // flags are identical in the original and fused views, so the split is
-    // computed on the original stages and the run is re-fused for emission.
+    // The trailing barrier-free run: absorbed by a pure fold or a
+    // `fold_map`, chained into a `collect`/container terminal, or (impure
+    // fold) absent. Barrier flags are identical in the original and fused
+    // views, so the split is computed on the original stages and the run is
+    // re-fused for emission. `fold_map` has no purity question — the
+    // accumulator never appears in user code — so it always absorbs.
     let split = if fuse && !pointwise {
         match &pipeline.terminal {
-            Terminal::Fold { is_pure: true, .. } | Terminal::Collect(_) | Terminal::None => {
-                absorbable_suffix(&pipeline.stages)
-            }
+            Terminal::Fold { is_pure: true, .. }
+            | Terminal::FoldMap { .. }
+            | Terminal::Collect(_)
+            | Terminal::None => absorbable_suffix(&pipeline.stages),
             Terminal::Fold { is_pure: false, .. } => 0,
         }
     } else {
@@ -262,6 +273,34 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
                 // test); see the module docs, the §6.1 M4 evidence.
                 quote_spanned! {*span=>
                     <#witness as ::catheo::CategoricalFold>::run_fold(#current, #init, #fold_callable)
+                }
+            }
+        }
+        Terminal::FoldMap { closure, span } => {
+            let fm_callable = closure.to_callable_tokens();
+            if fuse && !pointwise {
+                // Rule 4 for the monoid eliminator: the absorbed run (possibly
+                // empty) chains into one pass ending `.map(f).fold(identity,
+                // combine)` — zero intermediate containers. `combine`'s
+                // `(Self, Self)` signature ties the fold's accumulator type to
+                // the mapped item type, so the monoid resolves from `f`'s
+                // return even without a user-side annotation.
+                let chain = chain_adapters(suffix);
+                let iter = quote_spanned! {*span=>
+                    <#witness as ::catheo::CategoricalIntoIter>::into_iter(#current) #chain . map (#fm_callable)
+                };
+                quote_spanned! {*span=>
+                    #iter . fold (
+                        ::catheo::Monoid::identity(),
+                        ::catheo::Monoid::combine,
+                    )
+                }
+            } else {
+                // Pointwise witnesses (or the sequential lowering): the
+                // `run_fold_map` kernel is the idiomatic elimination — one
+                // discriminant test on Option/Result (the §6.1 M4 posture).
+                quote_spanned! {*span=>
+                    <#witness as ::catheo::CategoricalFoldMap>::run_fold_map(#current, #fm_callable)
                 }
             }
         }
@@ -734,6 +773,155 @@ mod tests {
             2,
             "breach falls back to one kernel per stage: {squeezed}"
         );
+    }
+
+    // ─── v0.2: fold_map terminal (§4.3) ──────────────────────────────────
+
+    #[test]
+    fn fold_map_absorbs_the_map_chain_into_one_fold() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            map: |y| y.to_string(),
+            fold_map: |s| s.len(),
+        });
+        assert!(
+            !out.contains("run_"),
+            "no kernel survives absorption: {out}"
+        );
+        assert!(
+            out.contains(
+                ". map (| x | x * 2) . map (| y | y . to_string ()) . map (| s | s . len ())"
+            ),
+            "one pass ending in the metric map: {out}"
+        );
+        assert_eq!(out.matches(". fold (").count(), 1, "one eliminator: {out}");
+        assert!(
+            out.contains("Monoid :: identity ()"),
+            "identity seeds the eliminator: {out}"
+        );
+        assert!(
+            out.contains("Monoid :: combine"),
+            "combine is the eliminator closure: {out}"
+        );
+    }
+
+    #[test]
+    fn fold_map_on_a_pointwise_witness_keeps_the_kernel() {
+        let out = emitted(quote! {
+            witness: OptionWitness,
+            source: o,
+            bind: |x| wrap(x),
+            fold_map: |x| score(x),
+        });
+        assert!(
+            out.contains("CategoricalFoldMap"),
+            "pointwise keeps the run_fold_map kernel: {out}"
+        );
+        assert!(out.contains("run_fold_map"), "{out}");
+        assert!(!out.contains("flat_map"), "no adapter chain: {out}");
+        assert!(!out.contains("Monoid"), "no inline monoid fold: {out}");
+    }
+
+    #[test]
+    fn fold_map_lowers_to_the_kernel_in_the_sequential_oracle() {
+        let out = sequential(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            fold_map: |x| x.len(),
+        });
+        assert!(out.contains("run_map"), "{out}");
+        assert!(out.contains("run_fold_map"), "{out}");
+        assert!(!out.contains("flat_map"), "{out}");
+    }
+
+    #[test]
+    fn fold_map_after_a_barrier_materializes_the_prefix() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            filter: |x| *x > 0,
+            map: |y| y + 1,
+            fold_map: |z| z,
+        });
+        assert!(out.contains("run_filter"), "{out}");
+        assert!(
+            !out.contains("__catheo_state_1"),
+            "the barrier keeps the prefix at one register: {out}"
+        );
+        assert!(
+            out.contains("into_iter (__catheo_state_0) . map (| y | y + 1) . map (| z | z)"),
+            "absorption starts after the barrier: {out}"
+        );
+    }
+
+    // ─── v0.2: §4.2 escape hatches ────────────────────────────────────────
+
+    #[test]
+    fn forced_observing_bind_chains_into_the_adapters() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: rows,
+            map: |x| x * 2,
+            bind!: force |row| row.iter().collect(),
+            fold: (0, |acc, x| acc + x),
+        });
+        assert!(
+            !out.contains("run_bind"),
+            "force cleared the barrier: {out}"
+        );
+        assert!(!out.contains("run_map"), "{out}");
+        assert!(
+            out.contains(". map (| x | x * 2) . flat_map (| row | row . iter () . collect ())"),
+            "the observer rides the fused pass: {out}"
+        );
+        assert_eq!(out.matches(". fold (").count(), 1, "{out}");
+    }
+
+    #[test]
+    fn materialized_bind_stays_a_kernel_and_blocks_absorption() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            bind!: materialize |x| wrap(x),
+            map: |y| y + 1,
+            fold: (0, |acc, x| acc + x),
+        });
+        assert!(
+            out.contains("run_bind"),
+            "the materialized bind is its own kernel: {out}"
+        );
+        assert!(
+            out.contains("run_map"),
+            "the prefix map also stays sequential: {out}"
+        );
+        assert!(
+            out.contains("into_iter (__catheo_state_1) . map (| y | y + 1)"),
+            "the suffix map fuses into the fold, not through the barrier: {out}"
+        );
+    }
+
+    // ─── v0.2: §4.2 source ascription ─────────────────────────────────────
+
+    #[test]
+    fn ascribed_source_binds_with_a_type_annotation() {
+        let out = emitted(quote! {
+            source: xs as Vec<i32>,
+            map: |x| x * 2,
+            fold: (0, |acc, x| acc + x),
+        });
+        assert!(
+            out.contains("let __catheo_source : Vec < i32 > = xs ;"),
+            "the ascription re-anchors the head expression: {out}"
+        );
+        assert!(
+            out.contains(":: catheo :: VecWitness"),
+            "the derived witness is absolute: {out}"
+        );
+        assert!(!out.contains("as Vec"), "the cast is never emitted: {out}");
     }
 
     #[test]
