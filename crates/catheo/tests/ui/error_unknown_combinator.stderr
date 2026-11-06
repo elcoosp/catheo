@@ -1,0 +1,5 @@
+error: expected one of `map`, `bind`, `filter`, `fold`, or `collect`, found `fmap`
+ --> tests/ui/error_unknown_combinator.rs:7:9
+  |
+7 |         fmap: |x| x * 2,
+  |         ^^^^
