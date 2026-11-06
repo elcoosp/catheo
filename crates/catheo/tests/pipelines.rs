@@ -1,17 +1,15 @@
-//! End-to-end `pipeline!` behavior tests (M0 naive lowering).
+//! End-to-end `pipeline!` behavior tests (M2 fused lowering).
 //!
-//! These pin the *semantics* the M2 deforestation pass must preserve
+//! These pin the *semantics* the deforestation pass must preserve
 //! (§6.2 "fused == unfused"): whatever the optimizer rewrites, the result
-//! values of these pipelines may never change.
+//! values of these pipelines may never change. The §6.2 property harness
+//! (`fusion_properties.rs`) checks the same pipeline shapes against the
+//! sequential oracle; this file pins the user-visible idioms.
 //
 // Stage closures below deliberately exercise specific syntactic shapes
 // (`.iter()` to trip the structural-observer barrier, closure form instead
-// of method references to keep the closure-header path covered), so the
-// clippy suggestions would defeat the tests' purpose.
-#![allow(
-    clippy::iter_cloned_collect,
-    clippy::redundant_closure_for_method_calls
-)]
+// of method references to keep the closure-header path covered) while
+// staying inside the clippy pedantic deny — no allow attributes anywhere.
 
 use catheo::{OptionWitness, ResultWitness, VecWitness, pipeline};
 
@@ -63,7 +61,10 @@ fn observing_bind_blocks_fusion_but_keeps_semantics() {
     let total: i64 = pipeline! {
         witness: VecWitness,
         source: rows,
-        bind: |row| row.iter().copied().collect::<Vec<i32>>(),
+        bind: |row| row.iter().fold(Vec::new(), |mut copy, item| {
+                copy.push(*item);
+                copy
+            }),
         fold: (0_i64, |acc, x| acc + i64::from(x)),
     };
     assert_eq!(total, 15);
@@ -101,7 +102,7 @@ fn option_witness_bind_chain_short_circuits() {
         source: maybe,
         map: |x| x + 1,
         bind: |x| if x > 2 { Some(x * 10) } else { None },
-        fold: (0_i32, |acc, x| acc + x),
+        fold: (0_i32, i32::wrapping_add),
     };
     assert_eq!(out, 30);
 
@@ -111,7 +112,7 @@ fn option_witness_bind_chain_short_circuits() {
         source: maybe,
         map: |x: i32| x + 1,
         bind: |x| if x > 2 { Some(x * 10) } else { None },
-        fold: (0_i32, |acc, x| acc + x),
+        fold: (0_i32, i32::wrapping_add),
     };
     assert_eq!(out, 0, "None leaves the accumulator at its initial value");
 }
@@ -122,8 +123,8 @@ fn result_witness_error_chain_accumulates_ok_values() {
     let out: usize = pipeline! {
         witness: ResultWitness<ParseError>,
         source: raw,
-        map: |s| s.len(),
-        fold: (0_usize, |acc, n| acc + n),
+        map: str::len,
+        fold: (0_usize, usize::wrapping_add),
     };
     assert_eq!(out, 2);
 
@@ -131,8 +132,8 @@ fn result_witness_error_chain_accumulates_ok_values() {
     let out: usize = pipeline! {
         witness: ResultWitness<ParseError>,
         source: raw,
-        map: |s| s.len(),
-        fold: (0_usize, |acc, n| acc + n),
+        map: str::len,
+        fold: (0_usize, usize::wrapping_add),
     };
     assert_eq!(out, 0, "Err leaves the accumulator at its initial value");
 }
@@ -177,7 +178,7 @@ fn closures_capture_the_call_site_environment() {
         witness: VecWitness,
         source: input,
         map: |x| x * factor,
-        fold: (0_i64, |acc, x| acc + x),
+        fold: (0_i64, i64::wrapping_add),
     };
     assert_eq!(total, 9);
 }
