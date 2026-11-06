@@ -7,7 +7,7 @@
 //! we do not interpret, while `Span` information is preserved for diagnostics.
 
 use proc_macro2::{Span, TokenStream};
-use quote::ToTokens;
+use quote::{ToTokens, quote, quote_spanned};
 
 /// Head-anchored witness of a pipeline (§4.1).
 ///
@@ -101,6 +101,38 @@ impl Closure {
     #[must_use]
     pub fn is_callable(&self) -> bool {
         self.params.is_empty()
+    }
+
+    /// Reassemble the validated closure into a callable expression:
+    /// reconstructed header (identifier parameters with optional type
+    /// ascriptions) plus the opaque body verbatim, every token spanned at
+    /// the closure's own span (§3.4).
+    ///
+    /// Callable form (a fn path or other expression) is passed through
+    /// verbatim. Composition later happens by *application* (§3.3), so
+    /// this reconstruction is the single place a closure becomes a value.
+    #[must_use]
+    pub fn to_callable_tokens(&self) -> TokenStream {
+        let body = &self.body;
+        let span = self.span;
+        if self.is_callable() {
+            // Callable form: pass the expression through verbatim.
+            quote_spanned! {span=> #body}
+        } else {
+            let params = self.params.iter().map(|param| {
+                let ident = &param.ident;
+                if let Some(ty) = &param.ty {
+                    quote! { #ident : #ty }
+                } else {
+                    quote! { #ident }
+                }
+            });
+            if let Some(ret) = self.ret.as_ref() {
+                quote_spanned! {span=> | #(#params),* | -> #ret #body }
+            } else {
+                quote_spanned! {span=> | #(#params),* | #body }
+            }
+        }
     }
 }
 
