@@ -15,10 +15,19 @@ catheo-macros.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 trybuild.workspace = true
+# §6.1 decision gates: deterministic allocation counting + fused-emission
+# shape lockstep against the macro compiler.
+catheo-counting-alloc.workspace = true
+catheo-parser.workspace = true
+quote.workspace = true
 
 [lints]
 workspace = true
 
 [[bench]]
 name = "kernels"
+harness = false
+
+[[bench]]
+name = "abc"
 harness = false
