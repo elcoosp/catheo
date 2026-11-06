@@ -51,8 +51,34 @@
 //!   into the user-annotated `collect()`, a *concrete* expectation that
 //!   selects soundly.
 //!
-//! When the next-generation trait solver stabilizes (§5.1), the head runs
-//! fuse the same way and the sequential prefix becomes the fallback path.
+//! # Pointwise witnesses keep the kernel shape (the §6.1 M4 evidence)
+//!
+//! Deforestation eliminates *intermediate containers*. A witness whose
+//! projection is a zero-or-one-element container — `OptionWitness`,
+//! `ResultWitness<E>` — has none: its per-stage state is a register-sized
+//! enum, so chaining the absorbed run into `.flat_map` adapter layers over
+//! `option::IntoIter`/`result::IntoIter` is pure overhead against the
+//! kernel chain, whose every `run_bind` *is* the idiomatic `and_then`
+//! (branch + call, no adapter machinery). The §6.1 M4 benchmark measured
+//! the adapter lowering at 1.2–2.7× the idiomatic chain's time on the
+//! 10-stage `Result` chain, cold and warm, and on the two-morphism
+//! Kleisli chain — a **C ≥ B gate failure**, so per the §6.1 protocol the
+//! responsible lowering was re-examined before merge. The revision: for
+//! witnesses spelled `OptionWitness`/`ResultWitness` at the head, the
+//! trailing barrier-free run stays at the sequential-kernel shape —
+//! binds as `run_bind` kernels, the fold terminal as `run_fold` — and
+//! `pipeline!` then emits byte-for-byte the idiomatic spelling, measured
+//! at parity (README, "M4 notes").
+//!
+//! The dispatch is on the head witness *spelling* (a `syn::Path`, so
+//! `ResultWitness<E>` parses and matches; aliases and custom witnesses do
+//! not): a proc macro has no type information, and a miss falls back to
+//! the adapter lowering, which is semantically correct for every witness
+//! — the §3.2 conservative-approximation posture (false negatives
+//! acceptable, false negatives on the *gate* none: the M4 lockstep gate
+//! pins the kernel shape for the spelled built-ins). When the
+//! next-generation trait solver stabilizes (§5.1) the dispatch can become
+//! type-directed without breaking user code.
 
 use crate::ast::{Pipeline, Stage, StageKind, Terminal};
 use crate::fuse::{absorbable_suffix, fuse_components};
@@ -171,11 +197,17 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
 
     let mut current = quote!(__catheo_source);
 
+    // Pointwise witnesses (zero-or-one-element projections) keep the whole
+    // run at the kernel shape: there is no container to deforest, so the
+    // adapter-chain absorption is pure overhead against the kernel chain
+    // (see the module docs, the §6.1 M4 evidence).
+    let pointwise = fuse && is_zero_or_one_element_witness(witness);
+
     // The trailing barrier-free run: absorbed by a pure fold, chained into
     // a `collect`/container terminal, or (impure fold) absent. Barrier
     // flags are identical in the original and fused views, so the split is
     // computed on the original stages and the run is re-fused for emission.
-    let split = if fuse {
+    let split = if fuse && !pointwise {
         match &pipeline.terminal {
             Terminal::Fold { is_pure: true, .. } | Terminal::Collect(_) | Terminal::None => {
                 absorbable_suffix(&pipeline.stages)
@@ -213,7 +245,7 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
             is_pure,
         } => {
             let fold_callable = closure.to_callable_tokens();
-            if *is_pure && fuse {
+            if *is_pure && fuse && !pointwise {
                 // Rule 4: the absorbed run (possibly empty) lowers into the
                 // fold's imperative loop — a single fused `.fold`
                 // eliminator over one adapter pass. Nothing between the
@@ -224,8 +256,10 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
                 };
                 quote_spanned! {*span=> #iter . fold (#init , #fold_callable)}
             } else {
-                // Impure fold (§3.4): `run_fold` on the materialized
-                // intermediate.
+                // Impure fold (§3.4), or any fold on a pointwise witness:
+                // `run_fold` on the last register. For Option/Result the
+                // kernel *is* the idiomatic elimination (one discriminant
+                // test); see the module docs, the §6.1 M4 evidence.
                 quote_spanned! {*span=>
                     <#witness as ::catheo::CategoricalFold>::run_fold(#current, #init, #fold_callable)
                 }
@@ -296,6 +330,24 @@ fn kernel_method(kind: StageKind) -> TokenStream {
         StageKind::Bind => quote! { run_bind },
         StageKind::Filter => quote! { run_filter },
     }
+}
+
+/// `true` when the head witness spells a zero-or-one-element projection:
+/// `OptionWitness` or `ResultWitness<…>` (§2.1 built-ins; the last path
+/// segment decides, so a fully qualified spelling matches too).
+///
+/// A conservative *spelling* check by necessity — a proc macro has no type
+/// information (§5.1) — with the §3.2 posture: a miss (aliased or custom
+/// pointwise witnesses) falls back to the adapter lowering, which is
+/// semantically correct for every witness, merely not optimal for those.
+/// False negatives are acceptable; false positives are impossible (both
+/// spelled witnesses project to zero-or-one-element containers by
+/// definition).
+fn is_zero_or_one_element_witness(witness: &syn::Path) -> bool {
+    witness
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "OptionWitness" || segment.ident == "ResultWitness")
 }
 
 #[cfg(test)]
@@ -592,6 +644,69 @@ mod tests {
             out.contains(". flat_map (split_tokens)"),
             "applied as a Fn-bounded argument: {out}"
         );
+    }
+
+    #[test]
+    fn pointwise_witnesses_keep_the_kernel_chain() {
+        // The §6.1 M4 evidence: on a zero-or-one-element witness the
+        // adapter-chain absorption is pure overhead against the kernel
+        // chain (whose run_bind *is* the idiomatic `and_then`), so the
+        // fused lowering keeps every stage a monomorphic kernel and the
+        // fold terminal at run_fold — byte-for-byte the idiomatic shape.
+        let out = emitted(quote! {
+            witness: ResultWitness<MyError>,
+            source: r,
+            bind: stage_01,
+            bind: stage_02,
+            fold: (0_i64, |acc, x| acc.wrapping_add(x)),
+        });
+        assert_eq!(
+            out.matches("run_bind").count(),
+            2,
+            "one run_bind kernel per bind: {out}"
+        );
+        assert!(
+            !out.contains("flat_map"),
+            "no adapter chain over a 1-element iterator: {out}"
+        );
+        assert!(!out.contains("into_iter"), "no iterator is formed: {out}");
+        assert_eq!(
+            out.matches("run_fold").count(),
+            1,
+            "the fold terminal stays the run_fold kernel: {out}"
+        );
+        assert!(
+            out.contains("__catheo_state_1"),
+            "flat registers between kernels (§3.4): {out}"
+        );
+
+        // The Option spelling dispatches the same way, and the parameterized
+        // Result path matches on the last path segment.
+        let qualified = syn::parse_str::<syn::Path>("catheo::OptionWitness").expect("parses");
+        for witness in [
+            syn::parse_str::<syn::Path>("OptionWitness").expect("parses"),
+            qualified,
+        ] {
+            let out = emitted(quote! {
+                witness: #witness,
+                source: o,
+                bind: kleisli_f,
+                fold: (0_i64, |acc, x| acc.wrapping_add(x)),
+            });
+            assert!(out.contains("run_bind"), "{out}");
+            assert!(!out.contains("flat_map"), "{out}");
+            assert!(out.contains("run_fold"), "{out}");
+        }
+
+        // Vec keeps the Rule 4 absorption: the two lowerings coexist.
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            bind: split_tokens,
+            fold: (0, |acc, x| acc + x),
+        });
+        assert!(out.contains("flat_map"), "Vec still absorbs: {out}");
+        assert!(!out.contains("run_bind"), "Vec still absorbs: {out}");
     }
 
     #[test]
