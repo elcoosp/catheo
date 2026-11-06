@@ -1,0 +1,13 @@
+error: expected `kleisli: (morphism, ...)` with at least two Kleisli morphisms, e.g. `kleisli: (parse_even, halve)`
+ --> tests/ui/error_kleisli_single_morphism.rs:8:18
+  |
+8 |         kleisli: (halve),
+  |                  ^^^^^^^
+
+warning: unused import: `OptionWitness`
+ --> tests/ui/error_kleisli_single_morphism.rs:1:14
+  |
+1 | use catheo::{OptionWitness, pipeline};
+  |              ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
