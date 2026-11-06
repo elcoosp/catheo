@@ -1,0 +1,5 @@
+error: `Result` takes two type arguments; ascribe both, e.g. `source: r as Result<T, E>` (only `Vec<T>`, `Option<T>` and `Result<T, E>` ascriptions derive a witness; name the witness with `witness:` instead)
+ --> tests/ui/error_ascription_result_missing_error.rs:6:28
+  |
+6 |         source: r as Result<i32>,
+  |                            ^
