@@ -1,0 +1,5 @@
+error: pipeline closures take exactly one parameter; expected closing `|`
+ --> tests/ui/error_closure_two_params.rs:7:16
+  |
+7 |         map: |x, y| x + y,
+  |                ^
