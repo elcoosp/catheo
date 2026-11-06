@@ -1,0 +1,13 @@
+error: `filter!` does not exist: `filter` is an absolute fusion barrier (§3.3 Rule 3); no escape hatch applies
+ --> tests/ui/error_filter_bang.rs:8:9
+  |
+8 |         filter!: force |x| *x > 0,
+  |         ^^^^^^
+
+warning: unused import: `VecWitness`
+ --> tests/ui/error_filter_bang.rs:1:14
+  |
+1 | use catheo::{VecWitness, pipeline};
+  |              ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
