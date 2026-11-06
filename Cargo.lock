@@ -52,16 +52,23 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "catheo"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
+ "catheo-counting-alloc",
  "catheo-macros",
+ "catheo-parser",
  "criterion",
+ "quote",
  "trybuild",
 ]
 
 [[package]]
+name = "catheo-counting-alloc"
+version = "0.0.4"
+
+[[package]]
 name = "catheo-macros"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "catheo-parser",
  "proc-macro2",
@@ -71,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "catheo-parser"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "criterion",
  "proc-macro2",
