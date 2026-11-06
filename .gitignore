@@ -1,0 +1,13 @@
+# Build artifacts
+/target
+
+# Criterion benchmark output (regenerated; stored under target/)
+/target/criterion
+
+# Backup files left by some tools
+**/*.rs.bk
+
+# Editor noise
+.idea/
+.vscode/
+*.swp
