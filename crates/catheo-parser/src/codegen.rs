@@ -1,26 +1,166 @@
-//! SSA-flattening codegen (ARCHITECTURE.md §3.4) — M0 lowering.
+//! SSA-flattening codegen (ARCHITECTURE.md §3.4) — M2 fused lowering.
 //!
-//! M0 emits the **naive sequential lowering**: one flat `let` binding per
-//! stage, each a monomorphic kernel call on the witness. There is no
-//! deforestation yet (that is M2) and no unified state wrapper (§6.3
-//! fallback, also M2). The emitted shape is already what §3.4 describes:
-//! flat `let`-bound virtual registers with every token tied to the
-//! originating stage's span via `quote_spanned!`, so `rustc` diagnostics
-//! point at the user's `map:` / `bind:` keyword, never into macro internals.
+//! Two lowerings share this module:
+//!
+//! - **[`Lowering::Fused`]** (what `pipeline!` expands to): the stage list
+//!   first runs through the §3.3 deforestation pass ([`crate::fuse`]); the
+//!   pure-`fold` terminal then *absorbs* its trailing Map/Bind chain
+//!   (Rule 4) into nested imperative loops over the pre-barrier value, so
+//!   no intermediate container is ever allocated. Every token stays tied to
+//!   the originating stage's span via `quote_spanned!`, so `rustc`
+//!   diagnostics point at the user's `map:` / `bind:` / `fold:` keyword,
+//!   never into macro internals.
+//! - **[`Lowering::Sequential`]** (what `pipeline_unfused!` expands to):
+//!   the M0 naive lowering — one flat `let` binding per stage, each a
+//!   monomorphic kernel call. It is the *oracle* of the §6.2 property
+//!   harness: fused and sequential emissions of the same pipeline must
+//!   produce identical values.
+//!
+//! Both emit the shape §3.4 describes: flat `let`-bound virtual registers
+//! and flat, monomorphic control flow.
+//!
+//! # Two stable-Rust constraints the fused lowering works around
+//!
+//! **Composed closures cannot be emitted.** A §3.3 product
+//! `(|__pipeline_x| (g)((f)(__pipeline_x)))` fails to compile: rustc
+//! type-checks inner closure literals before any unification could pin
+//! their parameters, so a body like `|s| s.len()` is E0282 even in a
+//! `Fn`-bounded argument position. The fused lowering therefore chains the
+//! *component* callables through `Fn`-bounded adapter positions
+//! (`.map`, `.flat_map`, `.fold`), where each callable's parameters are
+//! pinned by the expected signature. The composed form stays the AST-level
+//! statement of the rules (`fuse_stages`), pinned by its own specs.
+//!
+//! **Pre-barrier runs cannot be fused into a kernel argument.** Fusing a
+//! run into a barrier kernel's container argument requires forming the
+//! witness container inside the generated code —
+//! `{iterators…}.collect()` against a `<Witness as HKT>::Type<T>`
+//! expectation. Empirically (rustc 1.99), that selection only resolves
+//! through a *concrete* container type: it works for `Vec` projections but
+//! fails for `Option`/`Result` with E0277, and a proc macro has no type
+//! information to spell the concrete type. This is the same normalization
+//! wall as §5.1's GAT note, so the head (everything before the final
+//! barrier-free run) stays at the M0 sequential-kernel shape — one
+//! monomorphic kernel per stage — and the fusion wins concentrate where
+//! they are sound on stable Rust:
+//!
+//! - the **absorbed suffix** of a pure `fold` (Rule 4): one adapter pass
+//!   ending in a single `.fold(init, g)` eliminator — zero intermediate
+//!   containers, every closure `Fn`-pinned, all three witnesses;
+//! - `collect` / container terminals: the trailing barrier-free run chains
+//!   into the user-annotated `collect()`, a *concrete* expectation that
+//!   selects soundly.
+//!
+//! When the next-generation trait solver stabilizes (§5.1), the head runs
+//! fuse the same way and the sequential prefix becomes the fallback path.
 
-use crate::ast::{Closure, Pipeline, StageKind, Terminal};
-use proc_macro2::TokenStream;
+use crate::ast::{Pipeline, Stage, StageKind, Terminal};
+use crate::fuse::{absorbable_suffix, fuse_components};
+use proc_macro2::{TokenStream, TokenTree};
 use quote::{format_ident, quote, quote_spanned};
 
-/// Emit monomorphic Rust items for a parsed [`Pipeline`].
+/// §6.3 expansion budget, in generated tokens.
+///
+/// The spec budgets *lines* (≤ 200 per pipeline, measured via
+/// `-Zmacro-stats`); printed token streams do not preserve source line
+/// breaks, so the budget is enforced on the token count with 10 tokens per
+/// line as the documented conversion. Breaching it falls back to the
+/// sequential lowering (the fused output can only ever be *smaller* than
+/// the user's own closure bodies); the `-Zmacro-stats` artifact in CI is
+/// the evidence trail.
+pub const EXPANSION_TOKEN_BUDGET: usize = 2_000;
+
+/// Which emission strategy [`emit_with_lowering`] applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Lowering {
+    /// Deforestation pass + fold absorption (§3.3, §3.4). The `pipeline!`
+    /// lowering.
+    #[default]
+    Fused,
+    /// The M0 naive sequential lowering; the §6.2 unfused oracle behind
+    /// `pipeline_unfused!`.
+    Sequential,
+}
+
+/// Emit monomorphic Rust items for a parsed [`Pipeline`] with the fused
+/// M2 lowering (deforestation + fold absorption).
 ///
 /// # Errors
-/// Never fails in M0; the signature stays fallible in anticipation of the
-/// expansion-budget fallback of §6.3.
+/// Never fails in M2; the signature stays fallible in anticipation of a
+/// future diagnostic-carrying pass.
 pub fn emit(pipeline: &Pipeline) -> syn::Result<TokenStream> {
+    emit_with_lowering(pipeline, Lowering::Fused)
+}
+
+/// Emit the naive sequential lowering — the §6.2 unfused oracle.
+///
+/// # Errors
+/// Never fails in M2; see [`emit`].
+pub fn emit_sequential(pipeline: &Pipeline) -> syn::Result<TokenStream> {
+    emit_with_lowering(pipeline, Lowering::Sequential)
+}
+
+/// Emit with an explicit strategy (§6.2: fused and sequential emissions of
+/// the same [`Pipeline`] must agree value-for-value).
+///
+/// # Errors
+/// Never fails in M2; see [`emit`].
+pub fn emit_with_lowering(pipeline: &Pipeline, lowering: Lowering) -> syn::Result<TokenStream> {
+    Ok(emit_with_budget(pipeline, lowering, EXPANSION_TOKEN_BUDGET))
+}
+
+/// [`emit_with_lowering`] with the §6.3 budget made explicit (tests).
+fn emit_with_budget(pipeline: &Pipeline, lowering: Lowering, budget: usize) -> TokenStream {
+    match lowering {
+        Lowering::Sequential => emit_pipeline(pipeline, false),
+        Lowering::Fused => {
+            let fused = emit_pipeline(pipeline, true);
+            if token_count(&fused) > budget {
+                // §6.3 budget fallback: emit the smaller sequential shape.
+                emit_pipeline(pipeline, false)
+            } else {
+                fused
+            }
+        }
+    }
+}
+
+/// Number of token trees in an emitted stream, counted recursively through
+/// groups (§6.3 metric).
+///
+/// The whole emission is one block group, so a top-level count would be 1;
+/// the recursive count is deterministic, monotone in pipeline size, and
+/// cheap next to parsing.
+#[must_use]
+pub fn token_count(tokens: &TokenStream) -> usize {
+    fn count(tokens: &TokenStream) -> usize {
+        tokens
+            .clone()
+            .into_iter()
+            .map(|tree| match tree {
+                TokenTree::Group(ref group) => count(&group.stream()) + 1,
+                _ => 1,
+            })
+            .sum()
+    }
+    count(tokens)
+}
+
+/// Emit the whole pipeline; `fuse` selects the fused lowering.
+///
+/// The sequential lowering emits one kernel binding per original stage
+/// (M0). The fused lowering keeps that shape for the *prefix* (everything
+/// before the trailing barrier-free run — see the module docs for why a
+/// stable-Rust macro cannot form witness containers mid-chain) and fuses
+/// the trailing run into one adapter pass that ends in the terminal: a
+/// pure `fold` absorbs it into a single `.fold(init, g)` eliminator
+/// (Rule 4); `collect`/container terminals chain into the user-annotated
+/// `collect()`. Every user callable lands in a `Fn`-bounded argument
+/// position, so closure parameters are pinned by the expected signature.
+fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
     let witness = &pipeline.witness.path;
 
-    let mut parts: Vec<TokenStream> = Vec::with_capacity(pipeline.stages.len() + 2);
+    let mut parts: Vec<TokenStream> = Vec::new();
 
     // state_source — the raw source expression, bound directly: a `let`
     // initializer needs no extra grouping.
@@ -30,19 +170,31 @@ pub fn emit(pipeline: &Pipeline) -> syn::Result<TokenStream> {
     });
 
     let mut current = quote!(__catheo_source);
-    for (index, stage) in pipeline.stages.iter().enumerate() {
+
+    // The trailing barrier-free run: absorbed by a pure fold, chained into
+    // a `collect`/container terminal, or (impure fold) absent. Barrier
+    // flags are identical in the original and fused views, so the split is
+    // computed on the original stages and the run is re-fused for emission.
+    let split = if fuse {
+        match &pipeline.terminal {
+            Terminal::Fold { is_pure: true, .. } | Terminal::Collect(_) | Terminal::None => {
+                absorbable_suffix(&pipeline.stages)
+            }
+            Terminal::Fold { is_pure: false, .. } => 0,
+        }
+    } else {
+        0
+    };
+    let prefix = &pipeline.stages[..pipeline.stages.len() - split];
+    let suffix = &pipeline.stages[pipeline.stages.len() - split..];
+
+    // Prefix: one monomorphic kernel binding per stage (§3.4 flat `let`
+    // registers; sequential in both lowerings — see module docs).
+    for (index, stage) in prefix.iter().enumerate() {
         let state = format_ident!("__catheo_state_{index}");
-        let closure = emit_closure(&stage.closure);
-        let kernel = match stage.kind {
-            StageKind::Map => quote! { ::catheo::CategoricalFunctor },
-            StageKind::Bind => quote! { ::catheo::CategoricalMonad },
-            StageKind::Filter => quote! { ::catheo::CategoricalFilter },
-        };
-        let run = match stage.kind {
-            StageKind::Map => quote! { run_map },
-            StageKind::Bind => quote! { run_bind },
-            StageKind::Filter => quote! { run_filter },
-        };
+        let closure = stage.closure.to_callable_tokens();
+        let kernel = kernel_trait(stage.kind);
+        let run = kernel_method(stage.kind);
         // Every token of the binding is tied to the stage keyword's span
         // (§3.4): a type error inside the stage points at `map:`/`bind:` as
         // written by the user.
@@ -52,75 +204,131 @@ pub fn emit(pipeline: &Pipeline) -> syn::Result<TokenStream> {
         current = quote!(#state);
     }
 
-    parts.push(match &pipeline.terminal {
+    // Terminal.
+    let tail = match &pipeline.terminal {
         Terminal::Fold {
             init,
             closure,
             span,
-            ..
+            is_pure,
         } => {
-            let fold_closure = emit_closure(closure);
-            quote_spanned! {*span=>
-                <#witness as ::catheo::CategoricalFold>::run_fold(#current, #init, #fold_closure)
+            let fold_callable = closure.to_callable_tokens();
+            if *is_pure && fuse {
+                // Rule 4: the absorbed run (possibly empty) lowers into the
+                // fold's imperative loop — a single fused `.fold`
+                // eliminator over one adapter pass. Nothing between the
+                // loop source and the accumulator is ever materialized.
+                let chain = chain_adapters(suffix);
+                let iter = quote_spanned! {*span=>
+                    <#witness as ::catheo::CategoricalIntoIter>::into_iter(#current) #chain
+                };
+                quote_spanned! {*span=> #iter . fold (#init , #fold_callable)}
+            } else {
+                // Impure fold (§3.4): `run_fold` on the materialized
+                // intermediate.
+                quote_spanned! {*span=>
+                    <#witness as ::catheo::CategoricalFold>::run_fold(#current, #init, #fold_callable)
+                }
             }
         }
-        Terminal::Collect(span) => quote_spanned! {*span=>
-            <#witness as ::catheo::CategoricalIntoIter>::into_iter(#current).collect()
-        },
-        Terminal::None => current,
-    });
+        Terminal::Collect(span) => {
+            let chain = if fuse {
+                chain_adapters(suffix)
+            } else {
+                TokenStream::new()
+            };
+            let iter = quote_spanned! {*span=>
+                <#witness as ::catheo::CategoricalIntoIter>::into_iter(#current) #chain
+            };
+            quote_spanned! {*span=> #iter . collect ()}
+        }
+        Terminal::None => {
+            if fuse && !suffix.is_empty() {
+                // The trailing run still fuses; the user's `let` annotation
+                // provides the concrete collection target.
+                let chain = chain_adapters(suffix);
+                quote! {
+                    { <#witness as ::catheo::CategoricalIntoIter>::into_iter(#current) #chain }.collect()
+                }
+            } else {
+                current
+            }
+        }
+    };
+    parts.push(tail);
 
-    Ok(quote! {{ #(#parts)* }})
+    quote! {{ #(#parts)* }}
 }
 
-/// Reassemble a validated closure: reconstructed header (identifier
-/// parameters with optional type ascriptions) plus the opaque body verbatim.
+/// Render a run of non-barrier stages as chained `Fn`-bounded adapters:
+/// producers become `.map`, binds become `.flat_map` (`.filter` never
+/// appears — filters are barriers and stay in the sequential prefix).
 ///
-/// Per §3.3, fused composition later happens by *application*, not
-/// substitution; the naive lowering emits the closure exactly as parsed.
-fn emit_closure(closure: &Closure) -> TokenStream {
-    let body = &closure.body;
-    let span = closure.span;
-    if closure.is_callable() {
-        // Callable form: pass the expression to the kernel verbatim.
-        quote_spanned! {span=> #body}
-    } else {
-        let params = closure.params.iter().map(|param| {
-            let ident = &param.ident;
-            if let Some(ty) = &param.ty {
-                quote! { #ident : #ty }
+/// The stages are fused first so Rule 1/2 products apply in application
+/// order; spans ride on the user's callable tokens (§3.4).
+fn chain_adapters(stages: &[Stage]) -> TokenStream {
+    let mut chain = TokenStream::new();
+    for component in fuse_components(stages) {
+        let last = component.callables.len().saturating_sub(1);
+        for (index, callable) in component.callables.iter().enumerate() {
+            let call = callable.to_callable_tokens();
+            if component.kind == StageKind::Bind && index == last {
+                chain.extend(quote_spanned! {callable.span=> . flat_map (#call)});
             } else {
-                quote! { #ident }
+                chain.extend(quote_spanned! {callable.span=> . map (#call)});
             }
-        });
-        let ret = closure.ret.as_ref();
-        if let Some(ret) = ret {
-            quote_spanned! {span=> | #(#params),* | -> #ret #body }
-        } else {
-            quote_spanned! {span=> | #(#params),* | #body }
         }
+    }
+    chain
+}
+
+fn kernel_trait(kind: StageKind) -> TokenStream {
+    match kind {
+        StageKind::Map => quote! { ::catheo::CategoricalFunctor },
+        StageKind::Bind => quote! { ::catheo::CategoricalMonad },
+        StageKind::Filter => quote! { ::catheo::CategoricalFilter },
+    }
+}
+
+fn kernel_method(kind: StageKind) -> TokenStream {
+    match kind {
+        StageKind::Map => quote! { run_map },
+        StageKind::Bind => quote! { run_bind },
+        StageKind::Filter => quote! { run_filter },
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::ast::StageKind;
+    use crate::codegen::{Lowering, emit, emit_sequential, emit_with_budget, emit_with_lowering};
     use crate::parser::parse_pipeline;
     use quote::quote;
 
-    fn emitted(tokens: proc_macro2::TokenStream) -> String {
+    fn emitted_with(tokens: proc_macro2::TokenStream, lowering: Lowering) -> String {
         let pipeline = parse_pipeline(tokens).expect("pipeline parses");
-        crate::codegen::emit(&pipeline)
+        emit_with_lowering(&pipeline, lowering)
             .expect("emission succeeds")
             .to_string()
     }
 
+    fn emitted(tokens: proc_macro2::TokenStream) -> String {
+        emitted_with(tokens, Lowering::Fused)
+    }
+
+    fn sequential(tokens: proc_macro2::TokenStream) -> String {
+        emitted_with(tokens, Lowering::Sequential)
+    }
+
+    // ─── Sequential lowering (the §6.2 oracle, pinned since M0) ────────────
+
     #[test]
-    fn map_stages_lower_to_the_functor_kernel() {
-        let out = emitted(quote! {
+    fn sequential_map_stages_lower_to_the_functor_kernel() {
+        let out = sequential(quote! {
             witness: VecWitness,
             source: xs,
             map: |x| x * 2,
+            map: |y| y + 1,
             fold: (0, |acc, x| acc + x),
         });
         assert!(out.contains("CategoricalFunctor"), "{out}");
@@ -128,11 +336,12 @@ mod tests {
         assert!(out.contains("CategoricalFold"), "{out}");
         assert!(out.contains("run_fold"), "{out}");
         assert!(out.contains("__catheo_state_0"), "{out}");
+        assert!(out.contains("__catheo_state_1"), "{out}");
     }
 
     #[test]
-    fn bind_and_filter_lower_to_their_kernels() {
-        let out = emitted(quote! {
+    fn sequential_bind_and_filter_lower_to_their_kernels() {
+        let out = sequential(quote! {
             witness: VecWitness,
             source: xs,
             bind: |x| split(x),
@@ -147,8 +356,8 @@ mod tests {
     }
 
     #[test]
-    fn closures_are_reassembled_verbatim() {
-        let out = emitted(quote! {
+    fn sequential_closures_are_reassembled_verbatim() {
+        let out = sequential(quote! {
             witness: VecWitness,
             source: xs,
             map: |x: i32| x * 2,
@@ -158,8 +367,8 @@ mod tests {
     }
 
     #[test]
-    fn witness_path_is_used_verbatim() {
-        let out = emitted(quote! {
+    fn sequential_witness_path_is_used_verbatim() {
+        let out = sequential(quote! {
             witness: ResultWitness<MyError>,
             source: r,
             fold: (0, |acc, x| acc + x),
@@ -174,7 +383,7 @@ mod tests {
             source: xs,
         })
         .expect("parses");
-        let out = crate::codegen::emit(&pipeline).expect("emits").to_string();
+        let out = emit(&pipeline).expect("emits").to_string();
         assert!(!out.contains("run_map"), "{out}");
         assert!(out.contains("__catheo_source"), "{out}");
         assert_eq!(pipeline.stages.len(), 0);
@@ -192,5 +401,242 @@ mod tests {
         .expect("parses");
         let kinds: Vec<StageKind> = pipeline.stages.iter().map(|s| s.kind).collect();
         assert_eq!(kinds, [StageKind::Map, StageKind::Bind, StageKind::Filter]);
+    }
+
+    // ─── Fused lowering (M2: deforestation + fold absorption) ──────────────
+    //
+    // The fused emission chains the *component* callables of each fused
+    // stage through `Fn`-bounded adapter positions (`.map` / `.flat_map` /
+    // `.fold`). Applying composed closures directly — `(|x| g(f(x)))(v)` —
+    // is not an option: the inner closure literals would be type-checked
+    // before any unification pins their parameters (E0282 on `s.len()`-
+    // style bodies), which the §6.2 property gate caught.
+
+    #[test]
+    fn pure_fold_absorbs_the_whole_map_chain() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            map: |y| y + 1,
+            fold: (0, |acc, x| acc + x),
+        });
+        assert!(!out.contains("run_map"), "no kernel survives Rule 4: {out}");
+        assert!(!out.contains("CategoricalFunctor"), "{out}");
+        assert!(
+            !out.contains("run_fold"),
+            "the fold itself is the loop now: {out}"
+        );
+        assert!(
+            !out.contains("__catheo_state"),
+            "nothing materializes between source and fold: {out}"
+        );
+        assert!(
+            out.contains("into_iter (__catheo_source) . map (| x | x * 2) . map (| y | y + 1)"),
+            "one pass, adapters chained: {out}"
+        );
+        assert!(out.contains(". fold (0 , | acc , x | acc + x)"), "{out}");
+    }
+
+    #[test]
+    fn impure_fold_materializes_through_run_fold() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            fold: (Vec::new(), |acc, x| { acc.push(&mut x); acc }),
+        });
+        // Rule 4's fallback: an impure fold never absorbs — the prefix
+        // stays sequential and the fold lowers to run_fold on the
+        // materialized intermediate.
+        assert!(out.contains("run_fold"), "{out}");
+        assert!(
+            out.contains("run_map"),
+            "impure folds keep the sequential prefix: {out}"
+        );
+        assert!(
+            !out.contains(". fold ("),
+            "no fused eliminator for an impure fold: {out}"
+        );
+    }
+
+    #[test]
+    fn absorption_stops_at_an_observing_bind() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: rows,
+            map: |x| transform(x),
+            bind: |row| row.iter().collect(),
+            fold: (0, |acc, x| acc + x),
+        });
+        // The observing bind is a barrier: absorption stops, the prefix
+        // stays sequential, and the fold loops over the materialized bind
+        // result.
+        assert!(out.contains("run_bind"), "{out}");
+        assert!(out.contains("run_map"), "prefix stays sequential: {out}");
+        assert!(
+            out.contains("into_iter (__catheo_state_1)"),
+            "fold loops over the materialized bind result: {out}"
+        );
+    }
+
+    #[test]
+    fn absorption_stops_at_a_filter() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            filter: |x| *x > 0,
+            fold: (0, |acc, x| acc + x),
+        });
+        assert!(out.contains("run_filter"), "{out}");
+        assert!(
+            out.contains("run_map"),
+            "prefix stays sequential behind the barrier: {out}"
+        );
+        assert!(
+            out.contains("into_iter (__catheo_state_1)"),
+            "fold loops over the filter's materialized output: {out}"
+        );
+        assert!(
+            !out.contains("run_fold"),
+            "the pure fold is the fused eliminator: {out}"
+        );
+    }
+
+    #[test]
+    fn absorbed_binds_chain_into_one_fold() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            bind: |x| vec![x, x],
+            bind: |y| wrap(y),
+            fold: (0, |acc, x| acc + x),
+        });
+        assert!(!out.contains("run_map"), "{out}");
+        assert!(!out.contains("run_bind"), "{out}");
+        assert_eq!(
+            out.matches(". flat_map (").count(),
+            2,
+            "one flat_map per bind: {out}"
+        );
+        assert_eq!(
+            out.matches(". fold (").count(),
+            1,
+            "exactly one eliminator, at the end: {out}"
+        );
+        assert!(
+            out.contains(
+                ". map (| x | x * 2) . flat_map (| x | vec ! [x , x]) . flat_map (| y | wrap (y))"
+            ),
+            "linear chain in application order: {out}"
+        );
+    }
+
+    #[test]
+    fn collect_terminal_chains_maps_into_one_collect() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            map: |y| y + 1,
+            collect,
+        });
+        assert!(
+            !out.contains("run_"),
+            "no kernel: the chain collects straight into the target: {out}"
+        );
+        assert!(
+            out.contains(". map (| x | x * 2) . map (| y | y + 1) . collect ()"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn barriers_keep_the_prefix_sequential() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            map: |y| describe(y),
+            filter: |x| *x == 3,
+            collect,
+        });
+        // Rule 3: nothing crosses the filter, and a stable-Rust macro
+        // cannot form a witness container mid-chain (module docs) — so the
+        // prefix stays one monomorphic kernel per stage and the collect
+        // consumes the filter's materialized state.
+        assert_eq!(out.matches("run_map").count(), 2, "{out}");
+        assert!(out.contains("run_filter"), "{out}");
+        assert!(
+            out.contains("into_iter (__catheo_state_2) . collect ()"),
+            "{out}"
+        );
+        assert!(
+            !out.contains("__catheo_state_3"),
+            "no registers past the barrier: {out}"
+        );
+    }
+
+    #[test]
+    fn callable_bind_absorbs_into_the_chain() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            bind: split_tokens,
+            fold: (0, |acc, x| acc + x),
+        });
+        assert!(!out.contains("run_bind"), "{out}");
+        assert!(
+            out.contains(". flat_map (split_tokens)"),
+            "applied as a Fn-bounded argument: {out}"
+        );
+    }
+
+    #[test]
+    fn budget_breach_falls_back_to_the_sequential_shape() {
+        // With budget headroom the two maps chain into zero kernels;
+        // squeezing the §6.3 budget forces the sequential fallback (one
+        // kernel per original stage).
+        let tokens = quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            map: |y| y + 1,
+            collect,
+        };
+        let pipeline = parse_pipeline(tokens).expect("parses");
+        let roomy = emit_with_budget(&pipeline, Lowering::Fused, usize::MAX).to_string();
+        assert_eq!(
+            roomy.matches("run_map").count(),
+            0,
+            "adapters chain with headroom: {roomy}"
+        );
+        let squeezed = emit_with_budget(&pipeline, Lowering::Fused, 10).to_string();
+        assert_eq!(
+            squeezed.matches("run_map").count(),
+            2,
+            "breach falls back to one kernel per stage: {squeezed}"
+        );
+    }
+
+    #[test]
+    fn emit_sequential_matches_the_lowering_enum() {
+        let tokens = quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            map: |y| y + 1,
+            fold: (0, |acc, x| acc + x),
+        };
+        let pipeline = parse_pipeline(tokens).expect("parses");
+        let direct = emit_sequential(&pipeline).expect("emits");
+        let via_enum = emit_with_lowering(&pipeline, Lowering::Sequential).expect("emits");
+        assert_eq!(
+            direct.to_string(),
+            via_enum.to_string(),
+            "emit_sequential is Lowering::Sequential"
+        );
     }
 }
