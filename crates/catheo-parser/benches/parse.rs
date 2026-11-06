@@ -57,25 +57,10 @@ fn bench_expansion_parse_plus_emit(c: &mut Criterion) {
     group.finish();
 }
 
-/// §6.3 budget gate, asserted as a normal test so a regression fails CI
-/// deterministically rather than hiding in a dashboard. The real budget is
-/// 5 ms; we fail at 50 ms to stay far from scheduler noise while still
-/// catching order-of-magnitude blowups.
-#[test]
-fn expansion_budget_gate() {
-    for stages in [4, 16, 64, 256, 1024] {
-        let tokens = synthetic_pipeline(stages);
-        let start = std::time::Instant::now();
-        let pipeline = parse_pipeline(tokens).expect("parses");
-        let _expanded = emit(&pipeline).expect("emits");
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed < Duration::from_millis(50),
-            "expansion of a {stages}-stage pipeline took {elapsed:?}, \
-             blowing past the §6.3 budget sanity ceiling (50 ms)"
-        );
-    }
-}
+// The §6.3 expansion-budget gate lives in `tests/budget_gate.rs`: a
+// `harness = false` bench target never executes `#[test]`s, so the gate
+// would silently stop running. As a plain integration test it is enforced
+// by every plain `cargo test --workspace`.
 
 criterion_group!(benches, bench_parse, bench_expansion_parse_plus_emit);
 criterion_main!(benches);
