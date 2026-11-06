@@ -4,10 +4,11 @@ members = [
     "crates/catheo",
     "crates/catheo-macros",
     "crates/catheo-parser",
+    "crates/catheo-counting-alloc",
 ]
 
 [workspace.package]
-version = "0.0.3"
+version = "0.0.4"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT"
@@ -16,7 +17,7 @@ description = "Category theory at the speed of Rust: categorical pipelines compi
 authors = ["elcoosp"]
 
 [workspace.dependencies]
-# Third-party (pinned to latest crates.io releases at M0 time, researched 2026-11-06, re-verified at M2)
+# Third-party (pinned to latest crates.io releases at M0 time, researched 2026-11-06, re-verified at M3)
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = { version = "3.0.9", default-features = false, features = ["derive", "parsing", "printing", "proc-macro", "clone-impls", "extra-traits"] }
@@ -24,8 +25,9 @@ trybuild = "1.0.122"
 criterion = "0.8.2"
 
 # Internal
-catheo-parser = { path = "crates/catheo-parser", version = "0.0.3" }
-catheo-macros = { path = "crates/catheo-macros", version = "0.0.3" }
+catheo-parser = { path = "crates/catheo-parser", version = "0.0.4" }
+catheo-macros = { path = "crates/catheo-macros", version = "0.0.4" }
+catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.0.4" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
