@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT"
@@ -18,7 +18,7 @@ authors = ["elcoosp"]
 
 [workspace.dependencies]
 # Third-party (pinned to latest crates.io releases, researched 2026-11-06,
-# re-verified at the M5 release: all five are the latest stable versions)
+# re-verified at the v0.2.0 release: all five are the latest stable versions)
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = { version = "3.0.9", default-features = false, features = ["derive", "parsing", "printing", "proc-macro", "clone-impls", "extra-traits"] }
@@ -26,9 +26,9 @@ trybuild = "1.0.122"
 criterion = "0.8.2"
 
 # Internal
-catheo-parser = { path = "crates/catheo-parser", version = "0.1.0" }
-catheo-macros = { path = "crates/catheo-macros", version = "0.1.0" }
-catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.1.0" }
+catheo-parser = { path = "crates/catheo-parser", version = "0.2.0" }
+catheo-macros = { path = "crates/catheo-macros", version = "0.2.0" }
+catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.2.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
