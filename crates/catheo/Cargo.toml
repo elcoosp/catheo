@@ -1,0 +1,19 @@
+[package]
+name = "catheo"
+description = "Category theory at the speed of Rust: categorical pipelines compiled to flat imperative loops."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "../README.md"
+
+[dependencies]
+catheo-macros.workspace = true
+
+[dev-dependencies]
+trybuild.workspace = true
+
+[lints]
+workspace = true
