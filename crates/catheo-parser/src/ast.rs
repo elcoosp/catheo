@@ -123,18 +123,19 @@ pub struct Stage {
 }
 
 /// Pipeline terminal (§3.1).
-// The Fold variant legitimately carries more than the others: init tokens,
-// a full closure, and its own span. Boxing would add a pointer hop to the
-// hottest terminal for no real gain.
+///
+/// The `Fold` closure is boxed so every variant stays uniformly small: the
+/// M2 deforestation pass rebuilds and moves `Terminal`s inside
+/// `Vec<Stage>`-shaped buffers, and a small enum makes those moves cheap
+/// while the boxed hot-path closure keeps its identity.
 #[derive(Debug, Clone)]
-#[allow(clippy::large_enum_variant)]
 pub enum Terminal {
     /// Universal eliminator; absorbs a pure upstream prefix (Rule 4).
     Fold {
         /// Initial accumulator, raw tokens.
         init: TokenStream,
         /// `Fn(A, T) -> A` closure over the accumulated value and each item.
-        closure: Closure,
+        closure: Box<Closure>,
         /// Span of the `fold` keyword.
         span: Span,
         /// Lexical check (§3.4): the fold closure body contains no `&mut`.
