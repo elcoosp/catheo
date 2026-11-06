@@ -582,3 +582,198 @@ fn identity_pipeline_agrees() {
         assert_eq!(fused, unfused, "input {input:?}");
     }
 }
+
+// ─── v0.2: kleisli desugaring, fold_map, and the §4.2 escape hatches ────────
+
+#[test]
+fn v02_kleisli_entry_agrees_with_the_unfused_oracle() {
+    for input in &sweep_elems() {
+        // The desugared binds execute as kernels in both lowerings; the
+        // property pins the desugaring itself (chain order, arity).
+        let fused: i64 = pipeline! {
+            witness: OptionWitness,
+            source: input.checked_mul(2),
+            kleisli: (
+                |x: i32| x.checked_add(1),
+                |x: i32| x.checked_mul(3),
+                |x: i32| x.checked_sub(2),
+            ),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        let unfused: i64 = pipeline_unfused! {
+            witness: OptionWitness,
+            source: input.checked_mul(2),
+            kleisli: (
+                |x: i32| x.checked_add(1),
+                |x: i32| x.checked_mul(3),
+                |x: i32| x.checked_sub(2),
+            ),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+    }
+}
+
+#[test]
+fn v02_kleisli_over_vec_flattening_agrees() {
+    for input in &sweep_vecs() {
+        let expand = |x: i32| vec![x, x.wrapping_mul(2)];
+        let maybe_drop = |x: i32| if x % 3 == 0 { vec![] } else { vec![x] };
+        let fused: i64 = pipeline! {
+            witness: VecWitness,
+            source: input.clone(),
+            kleisli: (expand, maybe_drop),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        let unfused: i64 = pipeline_unfused! {
+            witness: VecWitness,
+            source: input.clone(),
+            kleisli: (expand, maybe_drop),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+    }
+}
+
+#[test]
+fn v02_fold_map_absorption_agrees() {
+    for input in &sweep_vecs() {
+        let fused: u64 = pipeline! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| x.wrapping_mul(3),
+            map: i32::unsigned_abs,
+            fold_map: u64::from,
+        };
+        let unfused: u64 = pipeline_unfused! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| x.wrapping_mul(3),
+            map: i32::unsigned_abs,
+            fold_map: u64::from,
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+    }
+}
+
+#[test]
+fn v02_fold_map_string_metric_agrees() {
+    for input in &sweep_strings() {
+        let fused: usize = pipeline! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| x.wrapping_mul(2),
+            map: |x| x.to_string(),
+            fold_map: |s: String| s.len(),
+        };
+        let unfused: usize = pipeline_unfused! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| x.wrapping_mul(2),
+            map: |x| x.to_string(),
+            fold_map: |s: String| s.len(),
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+    }
+}
+
+#[test]
+fn v02_fold_map_over_option_and_result_agrees() {
+    for input in &sweep_elems() {
+        let fused: i64 = pipeline! {
+            witness: OptionWitness,
+            source: input.checked_add(1),
+            bind: |x| x.checked_mul(2),
+            fold_map: i64::from,
+        };
+        let unfused: i64 = pipeline_unfused! {
+            witness: OptionWitness,
+            source: input.checked_add(1),
+            bind: |x| x.checked_mul(2),
+            fold_map: i64::from,
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+
+        let fused: i64 = pipeline! {
+            witness: ResultWitness::<String>,
+            source: input.checked_mul(7).ok_or("overflow".to_string()),
+            bind: |x: i32| x.checked_sub(1).ok_or("underflow".to_string()),
+            fold_map: i64::from,
+        };
+        let unfused: i64 = pipeline_unfused! {
+            witness: ResultWitness::<String>,
+            source: input.checked_mul(7).ok_or("overflow".to_string()),
+            bind: |x: i32| x.checked_sub(1).ok_or("underflow".to_string()),
+            fold_map: i64::from,
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+    }
+}
+
+#[test]
+fn v02_forced_observing_bind_agrees_with_the_oracle() {
+    for input in &sweep_vecs() {
+        // §4.2: `force` suppresses the observer flag. The closure here only
+        // *borrows* shape-insensitively (fold over the row), so fusion is
+        // sound and the two lowerings must agree.
+        let fused: i64 = pipeline! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| vec![x.wrapping_mul(10), x],
+            bind!: force |row: Vec<i32>| row.iter().fold(Vec::new(), |mut copy, item| { copy.push(*item); copy }),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        let unfused: i64 = pipeline_unfused! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| vec![x.wrapping_mul(10), x],
+            bind!: force |row: Vec<i32>| row.iter().fold(Vec::new(), |mut copy, item| { copy.push(*item); copy }),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+    }
+}
+
+#[test]
+fn v02_materialized_bind_agrees_with_the_oracle() {
+    for input in &sweep_vecs() {
+        // §4.2: `materialize` forces the intermediate container; the
+        // semantics must be exactly the oracle's.
+        let fused: i64 = pipeline! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| x.wrapping_mul(3),
+            bind!: materialize |x| vec![x, x],
+            map: |y| y.wrapping_sub(1),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        let unfused: i64 = pipeline_unfused! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| x.wrapping_mul(3),
+            bind!: materialize |x| vec![x, x],
+            map: |y| y.wrapping_sub(1),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+    }
+}
+
+#[test]
+fn v02_ascribed_source_agrees_with_the_oracle() {
+    for input in &sweep_vecs() {
+        // §4.2: the witness derives from the source ascription.
+        let fused: i64 = pipeline! {
+            source: input.clone() as Vec<i32>,
+            map: |x| x.wrapping_mul(3),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        let unfused: i64 = pipeline_unfused! {
+            witness: VecWitness,
+            source: input.clone(),
+            map: |x| x.wrapping_mul(3),
+            fold: (0_i64, |acc, x| acc + i64::from(x)),
+        };
+        assert_eq!(fused, unfused, "input {input:?}");
+    }
+}
