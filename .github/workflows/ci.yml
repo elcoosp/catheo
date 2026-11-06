@@ -21,7 +21,7 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
-    name: clippy (-D warnings)
+    name: clippy (pedantic deny, no allow-list, -D warnings)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,10 +32,12 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
-    name: test (trybuild pinned)
+    name: test (trybuild pinned + §6.3/kernel gates)
     # Pinned to the exact toolchain that generated the `tests/ui/*.stderr`
     # snapshots: rustc diagnostics are not stable across versions and
-    # trybuild compares byte-for-byte (§6.2).
+    # trybuild compares byte-for-byte (§6.2). The §6.3 expansion-budget and
+    # kernel-linearity gates are plain integration tests, so this job
+    # enforces them deterministically.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -44,17 +46,21 @@ jobs:
       - run: cargo test --workspace --all-features
 
   benches:
-    name: benchmarks (smoke + §6.3 budget gate)
+    name: benchmarks (smoke)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.3
-      # Shortened measurement window: this job gates compile-and-run health.
-      # The deterministic §6.3 expansion-budget gate runs under the plain
-      # `cargo test --workspace` job (it is a #[test] in the bench target).
-      # The full comparison suite (A/B/C, §6.1) lands with milestone M3.
+      # Shortened measurement window: this job gates compile-and-run health
+      # of both bench targets. The deterministic §6.3 expansion-budget and
+      # kernel-linearity gates run under the plain `cargo test --workspace`
+      # job (they are integration tests in `tests/`). The full comparison
+      # suite (A/B/C, §6.1) lands with milestone M3. Scoped per target: a
+      # workspace-wide `cargo bench` would feed criterion's flags to the
+      # libtest harnesses, which reject them.
       - run: cargo bench -p catheo-parser --bench parse -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
+      - run: cargo bench -p catheo --bench kernels -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
 
   macro-stats:
     name: nightly -Zmacro-stats (§5.3)
