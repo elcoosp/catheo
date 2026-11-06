@@ -60,6 +60,13 @@ impl Parse for Pipeline {
 
         let mut stages = Vec::new();
         let mut terminal = Terminal::None;
+        // The terminal consumes the container, so it is only sound as the
+        // *last* entry, and there can be only one: a stage written below it
+        // would have to be floated ahead of it (silently changing the
+        // written semantics), and a second terminal would silently discard
+        // the first. Both malformed shapes are rejected here, spanned at
+        // the offending keyword (§6.2).
+        let mut terminal_seen = false;
 
         loop {
             if input.is_empty() {
@@ -83,19 +90,36 @@ impl Parse for Pipeline {
 
             if input.peek(kw::map) {
                 let kw: kw::map = input.parse()?;
+                if terminal_seen {
+                    return Err(after_terminal_error(kw.span(), "map"));
+                }
                 stages.push(parse_stage(StageKind::Map, kw.span(), input)?);
             } else if input.peek(kw::bind) {
                 let kw: kw::bind = input.parse()?;
+                if terminal_seen {
+                    return Err(after_terminal_error(kw.span(), "bind"));
+                }
                 stages.push(parse_stage(StageKind::Bind, kw.span(), input)?);
             } else if input.peek(kw::filter) {
                 let kw: kw::filter = input.parse()?;
+                if terminal_seen {
+                    return Err(after_terminal_error(kw.span(), "filter"));
+                }
                 stages.push(parse_stage(StageKind::Filter, kw.span(), input)?);
             } else if input.peek(kw::fold) {
                 let kw: kw::fold = input.parse()?;
+                if terminal_seen {
+                    return Err(duplicate_terminal_error(kw.span(), "fold"));
+                }
                 terminal = parse_fold(kw.span(), input)?;
+                terminal_seen = true;
             } else if input.peek(kw::collect) {
                 let kw: kw::collect = input.parse()?;
+                if terminal_seen {
+                    return Err(duplicate_terminal_error(kw.span(), "collect"));
+                }
                 terminal = Terminal::Collect(kw.span());
+                terminal_seen = true;
             } else {
                 return Err(unknown_entry_error(input));
             }
@@ -110,6 +134,28 @@ impl Parse for Pipeline {
             terminal,
         })
     }
+}
+
+/// Spanned diagnostic for a stage written below the terminal (§6.2).
+fn after_terminal_error(span: Span, keyword: &str) -> syn::Error {
+    syn::Error::new(
+        span,
+        format!(
+            "`{keyword}` after the terminal: `fold`/`collect` must be the \
+             last entry of a pipeline"
+        ),
+    )
+}
+
+/// Spanned diagnostic for a second terminal entry (§6.2).
+fn duplicate_terminal_error(span: Span, keyword: &str) -> syn::Error {
+    syn::Error::new(
+        span,
+        format!(
+            "duplicate terminal entry: a pipeline has exactly one terminal, \
+             and `{keyword}` must be its last entry"
+        ),
+    )
 }
 
 /// Span of the next token in the stream, for spanned custom errors.
