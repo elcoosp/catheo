@@ -1,0 +1,13 @@
+error: redundant `as` ascription: the witness is already head-anchored by the `witness:` entry (§4.1 vs §4.2)
+ --> tests/ui/error_witness_and_ascription.rs:7:23
+  |
+7 |         source: xs as Vec<i32>,
+  |                       ^^^
+
+warning: unused import: `VecWitness`
+ --> tests/ui/error_witness_and_ascription.rs:1:14
+  |
+1 | use catheo::{VecWitness, pipeline};
+  |              ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
