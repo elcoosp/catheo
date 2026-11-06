@@ -10,7 +10,30 @@ representation**.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
-## Status — milestone M5 ✅ (public v0.1.0)
+## Status — milestone v0.2 ✅ (Kleisli, `fold_map`, escape hatches)
+
+Per the §8 roadmap, v0.2 delivers the three deferred v0.1 items and
+re-applies the benchmark gates: the §4.3 **Kleisli `>=>`** combinator
+(the `kleisli:` grammar entry desugaring to nested binds, the fusion pass
+extended across the chain boundary, and the `catheo::kleisli` runtime
+composition), the **`fold_map`** monoid eliminator (its own
+`run_fold_map` kernel plus a [`Monoid`] algebra), and the §4.2 **escape
+hatches** (`map!: force` / `bind!: force`, `bind!: materialize`, and
+`source: expr as Type` with automatic witness derivation). M0–M5 (v0.1.0)
+gates were re-run green on the same pinned toolchain before the new work.
+
+| Deliverable | State |
+|---|---|
+| `kleisli: (f, g, …)` grammar entry — desugars at parse time to one `bind` per morphism; Rules 1–2 fuse across the chain boundary; Rule 4 absorbs the suffix (§4.3) | done (v0.2) |
+| `catheo::kleisli(witness, f, g)` runtime composition + Kleisli associativity law tests (§4.3) | done (v0.2) |
+| `fold_map:` terminal + `CategoricalFoldMap::run_fold_map` kernels × `Vec`/`Option`/`Result` + `Monoid` algebra (12 integers, floats, `()`, `String`, `Vec<T>`, `Option<T>`, tuples) with identity/associativity law sweeps | done (v0.2) |
+| §4.2 escape hatches: `map!: force` / `bind!: force` (observer suppression), `map!:`/`bind!: materialize` (hard barrier + own kernel); `filter!`/terminal hatches rejected with spanned §6.2 errors | done (v0.2) |
+| §4.2 `source: expr as Type` — witness derived from the ascription (`Vec`/`Option`/`Result<T, E>`, qualified paths included); the expansion re-anchors the head expression with the user's written type | done (v0.2) |
+| **v0.2 gate** — benchmark gates re-applied: deterministic agreement/allocation/emission-lockstep gates (`tests/v02_gates.rs`) + new §6.1 three-way `combinators` bench; `fold_map` at parity with the idiomatic one-pass chain (C/B 1.00/1.00/1.04), kleisli entry at parity through the new grammar (C/B 0.94/0.97/1.02), map+kleisli+fold fusion at C/B 1.00 | done (v0.2) |
+| **v0.2 audit fixes** — turbofish generic lists (`Ok::<i32, String>(…)` as source, `::<A, B>` in bodies) now capture correctly; two grammar holes found and fixed (a `kleisli:`/`fold_map:`-keyword body swallowed an unseparated next entry; the dispatch double-consumed the `!` of `map!`/`bind!`); witness-misplacement now diagnosed precisely instead of as a vague inference failure | done (v0.2) |
+| clippy pedantic at **deny**, zero allow-list, grown with the new code (`#[expect]` only where §2.2 mandates) | done |
+
+## Status — milestone M5 (public v0.1.0)
 
 Per the roadmap in the architecture document, M5 closes the v0.1 arc:
 M0–M4 gates met and re-verified green at the release; the §7 limitations
@@ -205,6 +228,45 @@ was floated ahead of it, and a second terminal replaced the first. Both
 are rejected now, spanned at the offending keyword, the same §6.2 posture
 as the duplicate-witness error.
 
+### v0.2 notes — the re-applied gates, measured
+
+The §6.1 three-way verdicts from the new `cargo bench --bench
+combinators` (pinned toolchain `rustc 1.99.1`, criterion medians; the
+deterministic form of the same claims lives in `tests/v02_gates.rs`):
+
+| Suite | size | A naive (µs) | B idiomatic (µs) | C `pipeline!` (µs) | C/B |
+|---|---|---|---|---|---|
+| `kleisli_entry` | 10k | 7.8 | 7.9 | 7.4 | **0.94×** |
+| `kleisli_entry` | 100k | 103.1 | 97.2 | 94.8 | **0.98×** |
+| `kleisli_entry` | 1M | 1 120.3 | 1 144.1 | 1 169.0 | 1.02× |
+| `kleisli_vec_prefix` | 10k | 242.4 | 365.6 | 365.8 | **1.00×** |
+| `kleisli_vec_prefix` | 100k | 2 429.9 | 3 664.6 | 3 665.3 | **1.00×** |
+| `kleisli_vec_prefix` | 1M | 24 284 | 37 284 | 38 204 | 1.03× |
+| `fold_map` | 10k | 5.0 | 3.0 | 3.0 | **1.00×** |
+| `fold_map` | 100k | 49.3 | 29.1 | 29.1 | **1.00×** |
+| `fold_map` | 1M | 997.4 | 409.3 | 425.6 | 1.04× |
+
+- **`kleisli_entry`** re-measures the M4 Kleisli chain *through the new
+  grammar*. The emission-lockstep gate pins the `kleisli:` entry
+  byte-identical to the two-`bind` spelling, so C is M4's C; the cells
+  sit in the same parity band (C ≤ B at 10k/100k, within the shared
+  runner's noise at 1M — the same cell class the M4 notes document).
+- **`kleisli_vec_prefix`** is the "fusion pass extended" proof: `map` +
+  two-morphism `kleisli:` + `fold` lands within 0–3% of B's one-pass
+  `.map().flat_map().flat_map()` chain at every size — Rule 2 composes
+  across the desugared chain boundary and Rule 4 absorbs the suffix, so
+  C allocates nothing between source and fold (the allocation gate pins
+  C == B's profile exactly).
+- **`fold_map`** is parity with the idiomatic monoid chain, and 1.7–2.3×
+  faster than the materializing naive spelling (C/A 0.59–0.60 at 10k /
+  100k; 0.43 at 1M).
+
+One parser cost is on the books: the extended grammar adds two keyword
+peeks per entry, and the `parse/stages` criterion suite reads +2–2.5% on
+the 16/64/256-stage shapes (4 stages within noise). Against the §6.3
+budget — ≤ 5 ms per expansion, currently ~0.26 ms for a 256-stage
+pipeline — that is three orders of magnitude of headroom.
+
 ## Usage
 
 ```rust
@@ -222,9 +284,76 @@ assert_eq!(total, 4);
 ```
 
 Combinators in the `pipeline!` grammar: `map`, `bind`, `filter` (absolute
-fusion barrier), `fold` (universal eliminator), `collect`. Witnesses:
-`VecWitness`, `OptionWitness`, `ResultWitness<E>`. Stages accept closures
-(`|x| …`) or bare callables (`bind: parse_tokens`). The §4.3 `pure` and
+fusion barrier), `fold` (universal eliminator), `collect`, and — as of
+v0.2 — `kleisli: (f, g, …)` (a `>=>` chain desugared to nested binds) and
+`fold_map:` (the monoid eliminator). Witnesses: `VecWitness`,
+`OptionWitness`, `ResultWitness<E>` — or none at all: `source: xs as
+Vec<i32>` derives the witness from the ascription (§4.2). Stages accept
+closures (`|x| …`) or bare callables (`bind: parse_tokens`).
+
+### v0.2 — kleisli chains, monoid elimination, escape hatches
+
+```rust
+use catheo::{pipeline, OptionWitness, VecWitness};
+
+// `f >=> g >=> h`, written as one entry; a preceding `map` still fuses
+// into the first morphism (Rule 2 across the chain boundary).
+let doubled: Option<i64> = pipeline! {
+    witness: OptionWitness,
+    source: Some(2_i64),
+    kleisli: (
+        |x: i64| x.checked_mul(10),
+        |x: i64| x.checked_add(3),
+    ),
+    map: |x| x * 2,
+    collect,
+};
+assert_eq!(doubled, Some(92));
+
+// `fold_map`: aggregate a monoid metric — no `init`, the accumulator is
+// the metric's identity. Fused into one pass (zero intermediates).
+let words = vec!["alpha".to_string(), "be".to_string()];
+let letters: usize = pipeline! {
+    witness: VecWitness,
+    source: words,
+    fold_map: |w: String| w.len(),
+};
+assert_eq!(letters, 7);
+```
+
+Escape hatches (§4.2), for when the conservative §3.2 approximations get
+it wrong:
+
+```rust
+use catheo::{pipeline, VecWitness};
+
+let rows: Vec<Vec<i32>> = vec![vec![1, 2], vec![3, 4]];
+let total: i64 = pipeline! {
+    witness: VecWitness,
+    source: rows,
+    // `bind!: force` — the body *looks* like a structural observer, so
+    // fusion would normally stop here; force it. Unsound if the closure
+    // really observes container shape.
+    bind!: force |row: Vec<i32>| row.iter().sum(),
+    fold: (0_i64, |acc, x| acc + x),
+};
+assert_eq!(total, 20);
+
+// `bind!: materialize` — the opposite direction: force the intermediate
+// container no matter what the fusion pass would absorb.
+let materialized: Vec<i32> = pipeline! {
+    source: vec![1, 2] as Vec<i32>,
+    bind!: materialize |x| vec![x, x],
+    collect,
+};
+assert_eq!(materialized, vec![1, 1, 2, 2]);
+```
+
+The runtime side of v0.2: `catheo::kleisli(witness, f, g)` composes two
+Kleisli arrows outside any pipeline (`f >=> g`, associative); `Monoid` +
+`CategoricalFoldMap::run_fold_map` back the `fold_map:` terminal (impls
+for the 12 integer types, `f32`/`f64` sums, `()`, `String`, `Vec<T>`,
+`Option<T: Monoid>`, and tuples). The §4.3 `pure` and
 `join` kernels are available on the runtime layer as of M1
 (`CategoricalPointed::run_pure`, `CategoricalMonad::run_join`); their
 `pipeline!` grammar integration is deferred past M2. As of M2 there is a
@@ -254,6 +383,7 @@ let count: usize = pipeline! {
 | `run_join` | ✅ (concat) | ✅ (and_then(id)) | ✅ (and_then(id)) |
 | `run_filter` | ✅ | ✅ | ❌ by design¹ |
 | `run_fold` | ✅ | ✅ | ✅ (Err → init) |
+| `run_fold_map` | ✅ | ✅ (map_or) | ✅ (map_or, Err → identity) |
 | `into_iter` | ✅ | ✅ | ✅ |
 
 ¹ Dropping an `Ok` value has no error-free denotation; a `filter` stage over
