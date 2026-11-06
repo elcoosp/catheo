@@ -10,6 +10,14 @@
 //! Every kernel is an associated function taking the container by value and
 //! monomorphizes per call site (§2.3). Implementations are `#[inline(always)]`
 //! per §2.2 so LLVM sees through the witness indirection entirely.
+//!
+//! # On `#[expect(clippy::inline_always)]`
+//!
+//! The workspace runs clippy pedantic at deny level with **no allow-list**
+//! and no `#[allow]` anywhere. §2.2 nevertheless mandates `#[inline(always)]`
+//! on kernels, which pedantic flags. The reconciliation is `#[expect]` at
+//! each mandated site: a *verifiable* suppression that becomes a compile
+//! error the moment the lint stops firing, so no exemption can silently rot.
 
 use crate::hkt::HKT;
 use crate::witness::{OptionWitness, ResultWitness, VecWitness};
@@ -22,12 +30,36 @@ pub trait CategoricalFunctor: HKT {
         F: Fn(T) -> U;
 }
 
+/// Pointed functor: the minimal injection `pure` (§4.3 `pure` / `return`).
+///
+/// Kept separate from [`CategoricalMonad`] so kernel constraints stay shallow
+/// (§2.2): generated code that only needs `pure` does not force `rustc` to
+/// normalize the full monad hierarchy. Every monad is pointed; the converse
+/// does not hold, which is exactly why this is its own trait.
+pub trait CategoricalPointed: HKT {
+    /// Lift `value` into the witness's minimal container (§4.3: the
+    /// compile-time identity kernel).
+    fn run_pure<T>(value: T) -> Self::Type<T>;
+}
+
 /// Monadic sequence: element-to-container transformation, flattened.
 pub trait CategoricalMonad: CategoricalFunctor {
     /// Bind each element through `f` and flatten one level, in order.
     fn run_bind<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
     where
         F: Fn(T) -> Self::Type<U>;
+
+    /// Squash a doubled container: `join(m)` is `bind(m, identity)` (§4.3).
+    ///
+    /// A provided kernel by design: §4.3 defines `join` as a *desugar*, so a
+    /// single default body shared by every witness is the specification, not
+    /// a convenience. It still monomorphizes per `(witness, T)` exactly like
+    /// a required kernel (§2.3).
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_join<T>(container: Self::Type<Self::Type<T>>) -> Self::Type<T> {
+        Self::run_bind(container, |inner| inner)
+    }
 }
 
 /// Predicate-based element removal.
@@ -60,6 +92,7 @@ pub trait CategoricalIntoIter: HKT {
 // ─── VecWitness kernels ─────────────────────────────────────────────────────
 
 impl CategoricalFunctor for VecWitness {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_map<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
     where
@@ -70,6 +103,7 @@ impl CategoricalFunctor for VecWitness {
 }
 
 impl CategoricalMonad for VecWitness {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_bind<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
     where
@@ -79,7 +113,16 @@ impl CategoricalMonad for VecWitness {
     }
 }
 
+impl CategoricalPointed for VecWitness {
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_pure<T>(value: T) -> Self::Type<T> {
+        vec![value]
+    }
+}
+
 impl CategoricalFilter for VecWitness {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_filter<T, P>(container: Self::Type<T>, p: P) -> Self::Type<T>
     where
@@ -90,6 +133,7 @@ impl CategoricalFilter for VecWitness {
 }
 
 impl CategoricalFold for VecWitness {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_fold<T, A, F>(container: Self::Type<T>, init: A, f: F) -> A
     where
@@ -102,6 +146,7 @@ impl CategoricalFold for VecWitness {
 impl CategoricalIntoIter for VecWitness {
     type Item<T> = std::vec::IntoIter<T>;
 
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn into_iter<T>(container: Self::Type<T>) -> Self::Item<T> {
         container.into_iter()
@@ -111,6 +156,7 @@ impl CategoricalIntoIter for VecWitness {
 // ─── OptionWitness kernels ──────────────────────────────────────────────────
 
 impl CategoricalFunctor for OptionWitness {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_map<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
     where
@@ -121,6 +167,7 @@ impl CategoricalFunctor for OptionWitness {
 }
 
 impl CategoricalMonad for OptionWitness {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_bind<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
     where
@@ -130,7 +177,16 @@ impl CategoricalMonad for OptionWitness {
     }
 }
 
+impl CategoricalPointed for OptionWitness {
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_pure<T>(value: T) -> Self::Type<T> {
+        Some(value)
+    }
+}
+
 impl CategoricalFilter for OptionWitness {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_filter<T, P>(container: Self::Type<T>, p: P) -> Self::Type<T>
     where
@@ -141,6 +197,7 @@ impl CategoricalFilter for OptionWitness {
 }
 
 impl CategoricalFold for OptionWitness {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_fold<T, A, F>(container: Self::Type<T>, init: A, f: F) -> A
     where
@@ -156,6 +213,7 @@ impl CategoricalFold for OptionWitness {
 impl CategoricalIntoIter for OptionWitness {
     type Item<T> = std::option::IntoIter<T>;
 
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn into_iter<T>(container: Self::Type<T>) -> Self::Item<T> {
         container.into_iter()
@@ -168,6 +226,7 @@ impl CategoricalIntoIter for OptionWitness {
 // fabricating an `Err` value that the user never produced.
 
 impl<E> CategoricalFunctor for ResultWitness<E> {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_map<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
     where
@@ -178,6 +237,7 @@ impl<E> CategoricalFunctor for ResultWitness<E> {
 }
 
 impl<E> CategoricalMonad for ResultWitness<E> {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_bind<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
     where
@@ -187,7 +247,16 @@ impl<E> CategoricalMonad for ResultWitness<E> {
     }
 }
 
+impl<E> CategoricalPointed for ResultWitness<E> {
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_pure<T>(value: T) -> Self::Type<T> {
+        Ok(value)
+    }
+}
+
 impl<E> CategoricalFold for ResultWitness<E> {
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn run_fold<T, A, F>(container: Self::Type<T>, init: A, f: F) -> A
     where
@@ -203,6 +272,7 @@ impl<E> CategoricalFold for ResultWitness<E> {
 impl<E> CategoricalIntoIter for ResultWitness<E> {
     type Item<T> = std::result::IntoIter<T>;
 
+    #[expect(clippy::inline_always)]
     #[inline(always)]
     fn into_iter<T>(container: Self::Type<T>) -> Self::Item<T> {
         container.into_iter()
