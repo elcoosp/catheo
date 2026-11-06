@@ -5,6 +5,29 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.2.0] - 2026-11-06
+
+### 🚀 Features
+
+- *(runtime)* §4.3 v0.2 kernels — Monoid, run_fold_map, kleisli
+- *(parser)* V0.2 grammar — kleisli, fold_map, §4.2 hatches, derived witnesses
+- *(bench)* §6.1 combinators suite — the v0.2 gate re-applied
+
+### 📚 Documentation
+
+- *(readme)* Record the v0.2 milestone status and the measured gates
+
+### 🧪 Testing
+
+- *(v0.2)* Deterministic gates, property shapes, UI cases, kernel laws
+
+### ⚙️ Continuous Integration
+
+- Combinators bench smoke (fifth target)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Git-cliff changelog for 0.2.0
 ## [0.1.0] - 2026-11-06
 
 ### 🐛 Bug Fixes
@@ -19,6 +42,10 @@ are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 ### 🧪 Testing
 
 - *(release)* Deterministic M5 release gates
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Git-cliff changelog for 0.1.0
 ## [0.0.5] - 2026-11-06
 
 ### 🚀 Features
