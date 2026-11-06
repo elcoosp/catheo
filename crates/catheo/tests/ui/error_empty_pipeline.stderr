@@ -1,0 +1,7 @@
+error: empty pipeline: expected `witness: <Witness>` as the head anchor, e.g. `witness: VecWitness,`
+ --> tests/ui/error_empty_pipeline.rs:3:13
+  |
+3 |     let _ = catheo::pipeline! {};
+  |             ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `catheo::pipeline` (in Nightly builds, run with -Z macro-backtrace for more info)
