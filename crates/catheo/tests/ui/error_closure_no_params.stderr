@@ -1,0 +1,5 @@
+error: pipeline closures take exactly one parameter; found none
+ --> tests/ui/error_closure_no_params.rs:7:15
+  |
+7 |         map: || 42,
+  |               ^
