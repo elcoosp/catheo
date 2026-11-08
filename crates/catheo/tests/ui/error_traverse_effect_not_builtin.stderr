@@ -1,0 +1,5 @@
+error: the `traverse` effect witness must be spelled `OptionWitness` or `ResultWitness<E>` (§4.3 v0.3), found `MyEffect`
+  --> tests/ui/error_traverse_effect_not_builtin.rs:11:20
+   |
+11 |         traverse: (MyEffect, |x| Some(x)),
+   |                    ^^^^^^^^
