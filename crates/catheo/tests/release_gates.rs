@@ -1,5 +1,6 @@
 //! The M5 release gates (ARCHITECTURE.md §8: "Public v0.1 release — M0–M4
-//! gates met; README limitations published").
+//! gates met; README limitations published"), maintained at each release
+//! so the publication contract stays current.
 //!
 //! The M0–M4 technical gates are enforced by the rest of this suite
 //! (kernel/fusion/error-chain gates, expansion budget, trybuild UI, the
@@ -7,10 +8,11 @@
 //! made deterministic here, in the house gate style:
 //!
 //! - the published README carries the complete §7 limitation set under the
-//!   v0.1 heading (§7: "Known Limitations (Published in README)");
-//! - the workspace version is the public v0.1 version (`0.1.0`);
-//! - the changelog documents the release;
-//! - the README status table records the milestone.
+//!   limitations heading (§7: "Known Limitations (Published in README)");
+//! - the workspace version is the current public release version
+//!   (`0.3.0`);
+//! - the changelog documents the release history;
+//! - the README status table records the milestone history.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,24 +33,25 @@ fn read(relative: &str) -> String {
         .unwrap_or_else(|err| panic!("{relative} must be readable at {display}: {err}"))
 }
 
-/// The §7 limitation set, as (heading fragment, §7 item) pairs. The README
-/// is the *published form* of §7, so each item must appear under the v0.1
-/// limitations heading.
+/// The §7 limitation set, as published fragments. The README is the
+/// *published form* of §7, so each item must appear under the limitations
+/// heading. The list moves with §7 itself: v0.3 replaced the "No
+/// `traverse`" limitation with the constrained-shape statement (§4.3.1).
 const LIMITATION_FRAGMENTS: [&str; 5] = [
     "Closure shape is constrained",
     "Structural observers are detected lexically",
     "No strict `Monad` on stable",
-    "No `traverse`",
+    "`traverse` arrived in v0.3, and its shape is constrained",
     "LLVM is not controlled",
 ];
 
 #[test]
-fn readme_publishes_every_section_7_limitation_under_the_v01_heading() {
+fn readme_publishes_every_section_7_limitation_under_the_limitations_heading() {
     let readme = read("README.md");
     assert!(
-        readme.contains("## Known limitations (v0.1"),
-        "the limitations section must carry the v0.1 heading: the §7 gate \
-         is `README limitations published`"
+        readme.contains("## Known limitations"),
+        "the limitations section must carry the `Known limitations` heading: \
+         the §7 gate is `README limitations published`"
     );
     for fragment in LIMITATION_FRAGMENTS {
         assert!(
@@ -66,8 +69,8 @@ fn workspace_version_is_the_public_release_version() {
         .find_map(|line| line.trim().strip_prefix("version = "))
         .expect("the workspace manifest declares a version");
     assert_eq!(
-        version, "\"0.2.0\"",
-        "the current release is v0.2.0 (M5 shipped 0.1.0); bump the workspace version"
+        version, "\"0.3.0\"",
+        "the current release is v0.3.0 (traverse shipped); bump the workspace version"
     );
 }
 
@@ -88,11 +91,15 @@ fn changelog_documents_the_releases() {
 fn readme_status_records_the_release_history() {
     let readme = read("README.md");
     assert!(
-        readme.contains("milestone v0.2") && readme.contains("escape hatches"),
-        "the README status must record the v0.2 milestone"
+        readme.contains("v0.3.0") && readme.contains("traverse"),
+        "the README status must record the v0.3 traverse milestone"
     );
     assert!(
-        readme.contains("milestone M5") && readme.contains("v0.1.0"),
+        readme.contains("v0.2.0") && readme.contains("escape hatches"),
+        "the README status keeps the v0.2 milestone history"
+    );
+    assert!(
+        readme.contains("v0.1.0") && readme.contains("M0–M5"),
         "the README status keeps the M5 release history"
     );
 }
