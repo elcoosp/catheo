@@ -10,7 +10,7 @@
 //! - the published README carries the complete §7 limitation set under the
 //!   limitations heading (§7: "Known Limitations (Published in README)");
 //! - the workspace version is the current public release version
-//!   (`0.3.0`);
+//!   (`0.4.0`);
 //! - the changelog documents the release history;
 //! - the README status table records the milestone history.
 
@@ -69,14 +69,18 @@ fn workspace_version_is_the_public_release_version() {
         .find_map(|line| line.trim().strip_prefix("version = "))
         .expect("the workspace manifest declares a version");
     assert_eq!(
-        version, "\"0.3.0\"",
-        "the current release is v0.3.0 (traverse shipped); bump the workspace version"
+        version, "\"0.4.0\"",
+        "the current release is v0.4.0 (join shipped); bump the workspace version"
     );
 }
 
 #[test]
 fn changelog_documents_the_releases() {
     let changelog = read("CHANGELOG.md");
+    assert!(
+        changelog.contains("## [0.4.0]"),
+        "the git-cliff changelog must document the 0.4.0 release: {changelog}"
+    );
     assert!(
         changelog.contains("## [0.2.0]"),
         "the git-cliff changelog must document the 0.2.0 release: {changelog}"
@@ -90,6 +94,10 @@ fn changelog_documents_the_releases() {
 #[test]
 fn readme_status_records_the_release_history() {
     let readme = read("README.md");
+    assert!(
+        readme.contains("v0.4.0") && readme.contains("join"),
+        "the README status must record the v0.4 join milestone"
+    );
     assert!(
         readme.contains("v0.3.0") && readme.contains("traverse"),
         "the README status must record the v0.3 traverse milestone"
