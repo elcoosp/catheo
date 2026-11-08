@@ -1,0 +1,5 @@
+error: `traverse` requires a `Vec` container witness (`witness: VecWitness` or a `Vec` ascription, §4.3 v0.3): only `Vec` has a multi-element traversal; `Option`/`Result` sources are pointwise (the §6.1 M4 posture)
+ --> tests/ui/error_traverse_container_not_vec.rs:9:9
+  |
+9 |         traverse: (OptionWitness, |x| Some(x)),
+  |         ^^^^^^^^
