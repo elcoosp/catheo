@@ -1,0 +1,5 @@
+error: duplicate `traverse` entry: a pipeline has exactly one traversal boundary (§4.3 v0.3)
+  --> tests/ui/error_traverse_duplicate.rs:10:9
+   |
+10 |         traverse: (OptionWitness, |x| Some(x)),
+   |         ^^^^^^^^
