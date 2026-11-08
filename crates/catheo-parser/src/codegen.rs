@@ -516,15 +516,43 @@ fn effect_guard(
 /// producers become `.map`, binds become `.flat_map` (`.filter` never
 /// appears — filters are barriers and stay in the sequential prefix).
 ///
+/// The §4.3 `join` identity is the one exception. As the final callable of
+/// a Bind component it lowers to std's `.flatten()` — value-identical to
+/// `bind(id)` on every built-in witness (`flatten` *is* `flat_map(id)`)
+/// — and a map fused in front of it (Rule 2) takes the `.flat_map`
+/// position instead of forming `.map(f).flatten()`, which is the same
+/// elimination. The literal spellings would trip `clippy::flat_map_identity`
+/// / `clippy::map_flatten` in user builds; the house posture (§4.3.1) is
+/// that the fused output *is* the idiomatic B-parity elimination.
+///
 /// The stages are fused first so Rule 1/2 products apply in application
 /// order; spans ride on the user's callable tokens (§3.4).
 fn chain_adapters(stages: &[Stage]) -> TokenStream {
     let mut chain = TokenStream::new();
     for component in fuse_components(stages) {
+        let join_identity_tail = component.kind == StageKind::Bind
+            && component
+                .callables
+                .last()
+                .is_some_and(|callable| callable.is_join_identity());
         let last = component.callables.len().saturating_sub(1);
+        // With the join identity closing the component, the callable
+        // feeding it takes the `.flat_map` position and the identity
+        // itself lowers away (`.flatten()` when it is the only callable).
+        let flat_map_index = if join_identity_tail {
+            last.saturating_sub(1)
+        } else {
+            last
+        };
         for (index, callable) in component.callables.iter().enumerate() {
+            if join_identity_tail && index == last {
+                if component.callables.len() == 1 {
+                    chain.extend(quote_spanned! {callable.span=> . flatten ()});
+                }
+                continue;
+            }
             let call = callable.to_callable_tokens();
-            if component.kind == StageKind::Bind && index == last {
+            if component.kind == StageKind::Bind && index == flat_map_index {
                 chain.extend(quote_spanned! {callable.span=> . flat_map (#call)});
             } else {
                 chain.extend(quote_spanned! {callable.span=> . map (#call)});
@@ -810,6 +838,64 @@ mod tests {
             ),
             "linear chain in application order: {out}"
         );
+    }
+
+    // ─── The §4.3 join lowering: the identity is std's `.flatten()` ─────────
+
+    #[test]
+    fn join_lowers_to_the_idiomatic_flatten() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: nested,
+            join,
+            collect,
+        });
+        assert!(
+            out.contains("into_iter (__catheo_source) . flatten () . collect ()"),
+            "the join identity is std's flatten: {out}"
+        );
+        assert!(!out.contains("flat_map"), "no literal identity: {out}");
+        assert!(!out.contains("run_bind"), "{out}");
+    }
+
+    #[test]
+    fn map_into_join_takes_the_flat_map_position() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| vec![x, x],
+            join,
+            collect,
+        });
+        assert!(
+            out.contains(". flat_map (| x | vec ! [x , x])"),
+            "Rule 2's map rides the flat_map position: {out}"
+        );
+        assert!(
+            !out.contains(". flatten ()"),
+            "no `.map(f).flatten()` pair: {out}"
+        );
+        assert!(
+            !out.contains("run_map") && !out.contains("run_bind"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn a_user_written_identity_bind_is_not_join() {
+        // Only the parser's synthesized identity lowers to `.flatten()`;
+        // a user's own `|x| x` keeps the plain `.flat_map` spelling.
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: nested,
+            bind: |x| x,
+            collect,
+        });
+        assert!(
+            out.contains(". flat_map (| x | x)"),
+            "the user's identity stays literal: {out}"
+        );
+        assert!(!out.contains(". flatten ()"), "{out}");
     }
 
     #[test]
