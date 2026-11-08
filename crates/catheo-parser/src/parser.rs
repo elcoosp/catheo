@@ -14,12 +14,12 @@
 //!   macro internals.
 
 use crate::ast::{
-    Closure, Param, Pipeline, Source, Stage, StageKind, StageModifier, Terminal, Witness,
-    witness_from_type,
+    Closure, JOIN_PARAM, Param, Pipeline, Source, Stage, StageKind, StageModifier, Terminal,
+    Witness, witness_from_type,
 };
 use crate::observer::{is_lexically_pure, is_structural_observer};
 use proc_macro2::{Span, TokenStream, TokenTree};
-use quote::ToTokens;
+use quote::{ToTokens, format_ident, quote_spanned};
 use syn::Token;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::spanned::Spanned;
@@ -32,6 +32,7 @@ mod kw {
     syn::custom_keyword!(map);
     syn::custom_keyword!(bind);
     syn::custom_keyword!(filter);
+    syn::custom_keyword!(join);
     syn::custom_keyword!(fold);
     syn::custom_keyword!(collect);
     syn::custom_keyword!(kleisli);
@@ -46,7 +47,7 @@ mod kw {
 
 // Entry keywords that terminate an opaque raw-token capture (closure body,
 // source expression): `witness`, `source`, `map`, `bind`, `filter`, `fold`,
-// `collect`, plus the v0.2 `kleisli` and `fold_map`. A top-level `ident:`
+// `collect`, plus the v0.2 `kleisli` and `fold_map` and the v0.4 `join`. A top-level `ident:`
 // sequence naming one of these always starts the next pipeline entry, so a
 // missing comma between entries is reported instead of being silently
 // swallowed by a greedy capture. A `map!`/`bind!` escape hatch (§4.2)
@@ -206,26 +207,13 @@ fn parse_entry(
         if terminal_seen {
             return Err(after_terminal_error(kw.span(), "map"));
         }
-        if input.peek(Token![!]) {
-            // The §4.2 bang form: `map!: force|materialize …`. The `!`
-            // lookahead runs only once the `map` peek has already
-            // succeeded, so plain-map pipelines never pay for it. The `!`
-            // itself is *not* consumed here — [`parse_bang_stage`] owns it.
-            stages.push(parse_bang_stage(StageKind::Map, kw.span(), input)?);
-        } else {
-            stages.push(parse_stage(StageKind::Map, kw.span(), input)?);
-        }
+        stages.push(parse_hatchable_stage(StageKind::Map, kw.span(), input)?);
     } else if input.peek(kw::bind) {
         let kw: kw::bind = input.parse()?;
         if terminal_seen {
             return Err(after_terminal_error(kw.span(), "bind"));
         }
-        if input.peek(Token![!]) {
-            // The §4.2 bang form: `bind!: force|materialize …`.
-            stages.push(parse_bang_stage(StageKind::Bind, kw.span(), input)?);
-        } else {
-            stages.push(parse_stage(StageKind::Bind, kw.span(), input)?);
-        }
+        stages.push(parse_hatchable_stage(StageKind::Bind, kw.span(), input)?);
     } else if input.peek(kw::filter) {
         let kw: kw::filter = input.parse()?;
         if input.peek(Token![!]) {
@@ -240,6 +228,16 @@ fn parse_entry(
             return Err(after_terminal_error(kw.span(), "filter"));
         }
         stages.push(parse_stage(StageKind::Filter, kw.span(), input)?);
+    } else if input.peek(kw::join) {
+        let kw: kw::join = input.parse()?;
+        if input.peek(Token![!]) {
+            let _: Token![!] = input.parse()?;
+            return Err(hatch_not_applicable(kw.span()));
+        }
+        if terminal_seen {
+            return Err(after_terminal_error(kw.span(), "join"));
+        }
+        stages.push(parse_join(kw.span(), input)?);
     } else if input.peek(kw::kleisli) {
         let kw: kw::kleisli = input.parse()?;
         if input.peek(Token![!]) {
@@ -420,6 +418,22 @@ fn capture_raw_source(input: ParseStream<'_>) -> syn::Result<(TokenStream, bool)
     capture_raw_impl(input, true)
 }
 
+/// The §4.2 bang form `map!: force|materialize …` vs the plain stage:
+/// the `!` lookahead runs only once the keyword peek has already
+/// succeeded, so plain pipelines never pay for it. The `!` itself is
+/// *not* consumed here — [`parse_bang_stage`] owns it.
+fn parse_hatchable_stage(
+    kind: StageKind,
+    kw_span: Span,
+    input: ParseStream<'_>,
+) -> syn::Result<Stage> {
+    if input.peek(Token![!]) {
+        parse_bang_stage(kind, kw_span, input)
+    } else {
+        parse_stage(kind, kw_span, input)
+    }
+}
+
 /// `map:` / `bind:` / `filter:` stage with parse-time barrier annotation.
 fn parse_stage(kind: StageKind, kw_span: Span, input: ParseStream<'_>) -> syn::Result<Stage> {
     let _: Token![:] = input.parse()?;
@@ -483,6 +497,48 @@ fn parse_bang_stage(kind: StageKind, kw_span: Span, input: ParseStream<'_>) -> s
         fusion_barrier,
         structural_observer,
         modifier: marker,
+        effect: None,
+    })
+}
+
+/// §4.3 `join` — the monadic multiplication, desugared at parse time into
+/// one [`StageKind::Bind`] stage whose closure is the hygienic identity.
+///
+/// This is the §4.3 letter ("join — desugars to `bind(id)`") with the same
+/// posture as [`parse_kleisli`]: the desugared stage is ordinary, so the
+/// fusion pass needs no new rule. Rules 1–2 apply across it (a preceding
+/// `map` absorbs into the identity — functor composition followed by the
+/// weakly-cartesian flattening), Rule 4 absorbs over it, and the §3.2
+/// rescan still re-flags the product as an observer when an absorbed body
+/// mentions container-shape tokens. The runtime kernel is
+/// `CategoricalMonad::run_join`, itself a provided `run_bind(id)`.
+///
+/// The keyword is bare: the desugar has no user-supplied callable, so any
+/// argument after the keyword is rejected, spanned at the offending token.
+fn parse_join(kw_span: Span, input: ParseStream<'_>) -> syn::Result<Stage> {
+    if !input.is_empty() && !input.peek(Token![,]) {
+        return Err(syn::Error::new(
+            next_span(input),
+            "`join` takes no argument: it lowers to `bind(id)` (§4.3), so \
+             write the bare keyword, e.g. `join` after a nested stage",
+        ));
+    }
+    let ident = format_ident!("{}", JOIN_PARAM, span = kw_span);
+    Ok(Stage {
+        kind: StageKind::Bind,
+        closure: Closure {
+            params: vec![Param {
+                ident: ident.clone(),
+                ty: None,
+            }],
+            ret: None,
+            body: quote_spanned! {kw_span=> #ident},
+            span: kw_span,
+        },
+        span: kw_span,
+        fusion_barrier: false,
+        structural_observer: false,
+        modifier: StageModifier::None,
         effect: None,
     })
 }
@@ -751,13 +807,13 @@ fn unknown_entry_error(input: ParseStream<'_>) -> syn::Error {
         Some((TokenTree::Ident(ident), _)) => syn::Error::new(
             ident.span(),
             format!(
-                "expected one of `map`, `bind!`, `filter`, `kleisli`, \
+                "expected one of `map`, `bind!`, `filter`, `join`, `kleisli`, \
                  `traverse`, `fold`, `fold_map`, or `collect`, found `{ident}`"
             ),
         ),
         Some((tt, _)) => syn::Error::new(
             tt.span(),
-            "expected one of `map`, `bind!`, `filter`, `kleisli`, `traverse`, \
+            "expected one of `map`, `bind!`, `filter`, `join`, `kleisli`, `traverse`, \
              `fold`, `fold_map`, or `collect`",
         ),
         None => syn::Error::new(Span::call_site(), "unexpected end of pipeline"),
@@ -888,6 +944,7 @@ fn is_boundary_keyword(ident: &proc_macro2::Ident) -> bool {
         || ident == "collect"
         || ident == "fold"
         || ident == "filter"
+        || ident == "join"
         || ident == "fold_map"
         || ident == "kleisli"
         || ident == "traverse"
