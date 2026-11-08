@@ -36,6 +36,7 @@ mod kw {
     syn::custom_keyword!(collect);
     syn::custom_keyword!(kleisli);
     syn::custom_keyword!(fold_map);
+    syn::custom_keyword!(traverse);
     syn::custom_keyword!(force);
     syn::custom_keyword!(materialize);
 }
@@ -81,11 +82,22 @@ impl Parse for Pipeline {
         // the first. Both malformed shapes are rejected here, spanned at
         // the offending keyword (§6.2).
         let mut terminal_seen = false;
+        // The traversal re-anchors the pipeline's element flow inside the
+        // effect guard, so the grammar admits exactly one boundary (§4.3
+        // v0.3): a second `traverse` would re-wrap the already-guarded
+        // suffix in an effect the one-witness grammar cannot name.
+        let mut traverse_seen = false;
 
         while !input.is_empty() {
-            if let Some(parsed) = parse_entry(input, terminal_seen, &mut stages)? {
+            if let Some(parsed) = parse_entry(input, terminal_seen, traverse_seen, &mut stages)? {
                 terminal = parsed;
                 terminal_seen = true;
+            }
+            if stages
+                .last()
+                .is_some_and(|stage| stage.kind == StageKind::Traverse)
+            {
+                traverse_seen = true;
             }
             require_separator(input)?;
         }
@@ -118,6 +130,25 @@ impl Parse for Pipeline {
                 span: source.span,
             },
         };
+
+        // The traversal grammar pins the container to `Vec` (§4.3 v0.3):
+        // only a multi-element container has a traversal, and the kernel
+        // shape (§7 limitation 4) pins the collected inner container to a
+        // `Vec`. Pointwise containers are rejected with the traversal's
+        // span, which is where the fix belongs.
+        if let Some(traverse) = stages
+            .iter()
+            .find(|stage| stage.kind == StageKind::Traverse)
+            && !is_vec_witness(&witness.path)
+        {
+            return Err(syn::Error::new(
+                traverse.span,
+                "`traverse` requires a `Vec` container witness (`witness: \
+                 VecWitness` or a `Vec` ascription, §4.3 v0.3): only `Vec` \
+                 has a multi-element traversal; `Option`/`Result` sources are \
+                 pointwise (the §6.1 M4 posture)",
+            ));
+        }
 
         Ok(Self {
             witness,
@@ -154,10 +185,11 @@ fn hatch_not_applicable(span: Span) -> syn::Error {
 /// Parse the entry at the cursor, pushing any stages onto `stages`.
 /// Returns `Some(terminal)` when the entry was a terminal. `terminal_seen`
 /// gates the §6.2 ordering rules: nothing after a terminal, and no second
-/// terminal.
+/// terminal. `traverse_seen` gates the §4.3 v0.3 single-boundary rule.
 fn parse_entry(
     input: ParseStream<'_>,
     terminal_seen: bool,
+    traverse_seen: bool,
     stages: &mut Vec<Stage>,
 ) -> syn::Result<Option<Terminal>> {
     if input.peek(kw::witness) {
@@ -218,6 +250,23 @@ fn parse_entry(
             return Err(after_terminal_error(kw.span(), "kleisli"));
         }
         stages.extend(parse_kleisli(kw.span(), input)?);
+    } else if input.peek(kw::traverse) {
+        let kw: kw::traverse = input.parse()?;
+        if input.peek(Token![!]) {
+            let _: Token![!] = input.parse()?;
+            return Err(hatch_not_applicable(kw.span()));
+        }
+        if terminal_seen {
+            return Err(after_terminal_error(kw.span(), "traverse"));
+        }
+        if traverse_seen {
+            return Err(syn::Error::new(
+                kw.span(),
+                "duplicate `traverse` entry: a pipeline has exactly one \
+                 traversal boundary (§4.3 v0.3)",
+            ));
+        }
+        stages.push(parse_traverse(kw.span(), input)?);
     } else if input.peek(kw::fold) {
         let kw: kw::fold = input.parse()?;
         if terminal_seen {
@@ -384,6 +433,7 @@ fn parse_stage(kind: StageKind, kw_span: Span, input: ParseStream<'_>) -> syn::R
         fusion_barrier,
         structural_observer,
         modifier: StageModifier::None,
+        effect: None,
     })
 }
 
@@ -433,6 +483,7 @@ fn parse_bang_stage(kind: StageKind, kw_span: Span, input: ParseStream<'_>) -> s
         fusion_barrier,
         structural_observer,
         modifier: marker,
+        effect: None,
     })
 }
 
@@ -499,9 +550,116 @@ fn parse_kleisli(kw_span: Span, input: ParseStream<'_>) -> syn::Result<Vec<Stage
             fusion_barrier: structural_observer,
             structural_observer,
             modifier: StageModifier::None,
+            effect: None,
         });
     }
     Ok(stages)
+}
+
+/// §4.3 v0.3 `traverse: (G, f)` — the traversal boundary stage.
+///
+/// `G` must spell one of the built-in pointwise witnesses (`OptionWitness`,
+/// `ResultWitness<E>`): the effect is what the arrow `f: A -> G<B>` lands
+/// in, and the spelling dispatch decides both the kernel impl and the
+/// guard's constructors — the same conservative posture as the codegen's
+/// pointwise dispatch (§6.1 M4). `f` is a one-parameter closure or bare
+/// callable, exactly like a stage.
+///
+/// The stage is a *boundary*: `fusion_barrier` is set so Rules 1–2 never
+/// merge a neighbor into it (the deforestation pass treats it like a
+/// filter), while codegen still chains the absorbable prefix into the
+/// traversal's iterator on the lowering side.
+fn parse_traverse(kw_span: Span, input: ParseStream<'_>) -> syn::Result<Stage> {
+    const TUPLE_FORM: &str = "expected `traverse: (EffectWitness, f)`, e.g. `traverse: \
+         (ResultWitness<MyError>, parse_one)`";
+    let _: Token![:] = input.parse()?;
+    let group_span;
+    let content = {
+        let tt: TokenTree = input
+            .parse()
+            .map_err(|_| syn::Error::new(kw_span, TUPLE_FORM))?;
+        match tt {
+            TokenTree::Group(ref g) if g.delimiter() == proc_macro2::Delimiter::Parenthesis => {
+                group_span = g.span();
+                g.stream()
+            }
+            other => {
+                return Err(syn::Error::new(other.span(), TUPLE_FORM));
+            }
+        }
+    };
+
+    let segments = split_top_level_commas(&content);
+    // One trailing comma is tuple-style and accepted; an empty segment
+    // anywhere else is a syntax error.
+    let segments = match segments.split_last() {
+        Some((last, head)) if last.is_empty() => head,
+        _ => &segments[..],
+    };
+    if segments.len() != 2 || segments.iter().any(proc_macro2::TokenStream::is_empty) {
+        return Err(syn::Error::new(group_span, TUPLE_FORM));
+    }
+    let effect: syn::Path =
+        syn::parse2(segments[0].clone()).map_err(|_| syn::Error::new(group_span, TUPLE_FORM))?;
+    validate_traverse_effect(&effect)?;
+    let closure_parser = |input: ParseStream<'_>| Closure::parse_with_arity(input, 1);
+    let closure: Closure = closure_parser.parse2(segments[1].clone()).map_err(|err| {
+        syn::Error::new(
+            group_span,
+            format!("expected a traversal arrow `A -> G<B>` ({err})"),
+        )
+    })?;
+    Ok(Stage {
+        kind: StageKind::Traverse,
+        closure,
+        span: kw_span,
+        fusion_barrier: true,
+        structural_observer: false,
+        modifier: StageModifier::None,
+        effect: Some(effect),
+    })
+}
+
+/// Validate that the spelled effect witness is one of the built-in
+/// pointwise witnesses (§4.3 v0.3): `OptionWitness` or `ResultWitness<E>`,
+/// matched by the *last* path segment (the spelling posture of
+/// [`crate::ast::witness_from_type`] and the codegen's pointwise dispatch).
+///
+/// # Errors
+/// A spanned [`syn::Error`] at the effect path when it names no built-in
+/// pointwise witness.
+fn validate_traverse_effect(effect: &syn::Path) -> syn::Result<()> {
+    let Some(segment) = effect.segments.last() else {
+        return Err(syn::Error::new(
+            effect.span(),
+            "the `traverse` effect witness cannot be an empty path",
+        ));
+    };
+    match segment.ident.to_string().as_str() {
+        "OptionWitness" | "ResultWitness" => Ok(()),
+        "VecWitness" => Err(syn::Error::new(
+            effect.span(),
+            "`Vec` is not a pointwise effect: a `Vec` traversal is cartesian \
+             (each element expands to a container, the results combine \
+             combinatorially); use `bind:` for flattening stages",
+        )),
+        other => Err(syn::Error::new(
+            effect.span(),
+            format!(
+                "the `traverse` effect witness must be spelled `OptionWitness` \
+                 or `ResultWitness<E>` (§4.3 v0.3), found `{other}`"
+            ),
+        )),
+    }
+}
+
+/// `true` when the witness path's last segment spells the `Vec` witness —
+/// the spelling posture shared with [`crate::ast::witness_from_type`] and
+/// the codegen's pointwise dispatch.
+fn is_vec_witness(path: &syn::Path) -> bool {
+    path.segments
+        .last()
+        .is_some_and(|segment| segment.ident == "VecWitness")
 }
 
 /// §4.3 v0.2 `fold_map: <callable>` — the monoid-valued eliminator.
@@ -593,14 +751,14 @@ fn unknown_entry_error(input: ParseStream<'_>) -> syn::Error {
         Some((TokenTree::Ident(ident), _)) => syn::Error::new(
             ident.span(),
             format!(
-                "expected one of `map`, `bind!`, `filter`, `kleisli`, `fold`, \
-                 `fold_map`, or `collect`, found `{ident}`"
+                "expected one of `map`, `bind!`, `filter`, `kleisli`, \
+                 `traverse`, `fold`, `fold_map`, or `collect`, found `{ident}`"
             ),
         ),
         Some((tt, _)) => syn::Error::new(
             tt.span(),
-            "expected one of `map`, `bind!`, `filter`, `kleisli`, `fold`, \
-             `fold_map`, or `collect`",
+            "expected one of `map`, `bind!`, `filter`, `kleisli`, `traverse`, \
+             `fold`, `fold_map`, or `collect`",
         ),
         None => syn::Error::new(Span::call_site(), "unexpected end of pipeline"),
     }
@@ -732,6 +890,7 @@ fn is_boundary_keyword(ident: &proc_macro2::Ident) -> bool {
         || ident == "filter"
         || ident == "fold_map"
         || ident == "kleisli"
+        || ident == "traverse"
         || ident == "source"
         || ident == "witness"
 }
