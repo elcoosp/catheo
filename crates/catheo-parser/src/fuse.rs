@@ -178,6 +178,7 @@ impl FusedStage<'_> {
                 fusion_barrier: self.fusion_barrier,
                 structural_observer: self.structural_observer,
                 modifier: StageModifier::None,
+                effect: None,
             };
         };
         let mut closure = (*first).clone();
@@ -191,6 +192,7 @@ impl FusedStage<'_> {
             fusion_barrier: self.fusion_barrier,
             structural_observer: self.structural_observer,
             modifier: StageModifier::None,
+            effect: None,
         }
     }
 }
