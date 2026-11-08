@@ -13,7 +13,7 @@
   <p>
     <a href="https://github.com/elcoosp/catheo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elcoosp/catheo/ci.yml?style=flat-square" alt="CI"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/MSRV-1.99%2B-informational?style=flat-square" alt="MSRV 1.99+"/></a>
-    <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/version-0.3.0-informational?style=flat-square" alt="version 0.3.0"/></a>
+    <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/version-0.4.0-informational?style=flat-square" alt="version 0.4.0"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/clippy-pedantic%20deny-informational?style=flat-square" alt="clippy pedantic deny"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-informational?style=flat-square" alt="MIT license"/></a>
   </p>
@@ -55,8 +55,9 @@ The two `map` stages and the `fold` fuse into a single pass; no intermediate `Ve
 
 - **Fusion by construction.** A linear-time deforestation pass (`crates/catheo-parser/src/fuse.rs`) fuses adjacent `map`s into non-observing `bind`s and absorbs pure `fold`s, so the flagship `map → map → fold` shape runs as one loop with no intermediate containers.
 - **Deterministic, not anecdotal, performance.** `catheo-counting-alloc` is a thread-local counting allocator used by `crates/catheo/tests/v02_gates.rs` to pin three-way value agreement, allocation profiles, and fused-emission shape lockstep as plain `cargo test` gates — no wall-clock flakiness in CI.
-- **Laws checked, errors spanned.** Functor identity/composition and monad left/right identity/associativity are swept per witness in `crates/catheo/tests/categorical_laws.rs`; a 28-case trybuild suite (7 compile-pass, 21 compile-fail) in `crates/catheo/tests/ui/` pins every rejection to the offending user token, not macro internals.
+- **Laws checked, errors spanned.** Functor identity/composition and monad left/right identity/associativity are swept per witness in `crates/catheo/tests/categorical_laws.rs`; a 32-case trybuild suite (8 compile-pass, 24 compile-fail) in `crates/catheo/tests/ui/` pins every rejection to the offending user token, not macro internals.
 - **Kleisli chains and monoid folds.** `kleisli: (f, g, …)` desugars the `>=>` chain to nested binds and still fuses across the boundary; `fold_map:` eliminates into any `Monoid` — the 12 integer types, `f32`/`f64`, `()`, `String`, `Vec<T>`, `Option<T>`, and tuples (impls in `crates/catheo/src/categorical.rs`).
+- **Monadic multiplication as a stage.** `join` (v0.4) flattens one nesting level of `W<W<T>>` — the §4.3 `bind(id)` desugar as a bare keyword, lowering to std's `.flatten()` on the fused path, so `map → join` runs as a single `flat_map` pass with no intermediate containers.
 - **Traversal across an effect.** `traverse: (ResultWitness<E>, f)` (v0.3) runs a pointwise effect across the container and collects one effect around a `Vec` — std's short-circuiting `FromIterator` elimination, with the absorbable prefix chained into the traversal's iterator and the suffix folded inside the effect guard. No intermediate container between source and traversal; one traversal boundary per pipeline by grammar.
 - **Witnesses for containers you already use.** `VecWitness`, `OptionWitness`, and `ResultWitness<E>` implement the GAT-based `HKT` layer (`crates/catheo/src/hkt.rs`), or skip the witness entirely: `source: xs as Vec<i32>` derives it from the ascription.
 - **Escape hatches and an oracle.** `bind!: force` and `bind!: materialize` override the conservative fusion analysis in either direction, and `pipeline_unfused!` expands the same grammar without fusion — expanding a suspect pipeline through both macros isolates any mis-rewrite to the fusion pass.
@@ -120,6 +121,21 @@ let letters: usize = pipeline! {
 assert_eq!(letters, 12); // 5 + 2 + 5
 ```
 
+Monadic multiplication, flattening a nested container (v0.4):
+
+```rust
+use catheo::{pipeline, VecWitness};
+
+let rows = vec![vec![1_i32, 2], vec![3, 4]];
+let flat: Vec<i32> = pipeline! {
+    witness: VecWitness,
+    source: rows,
+    join,
+    collect,
+};
+assert_eq!(flat, vec![1, 2, 3, 4]);
+```
+
 Traversal over a fallible effect (v0.3): the absorbable prefix chains into the traversal's
 iterator, and the suffix fold lowers inside the effect guard — an `Err` forwards unchanged
 without forcing later elements:
@@ -166,6 +182,7 @@ The grammar at a glance:
 | `bind:` | monadic stage — flattens on `Vec`, `and_then` on `Option`/`Result` |
 | `filter:` | predicate; an absolute fusion barrier by design |
 | `kleisli: (f, g, …)` | `>=>` chain desugared to nested binds at parse time |
+| `join` | monadic multiplication: flattens one level of `W<W<T>>` (`bind(id)`) |
 | `traverse: (effect, f)` | traversable eliminator: pointwise effect across the container, one boundary per pipeline |
 | `fold: (init, f)` | universal eliminator to a single value |
 | `fold_map:` | monoid eliminator; accumulator starts at the identity |
@@ -177,7 +194,7 @@ Witnesses are `VecWitness`, `OptionWitness`, and `ResultWitness<E>` — or none 
 ## Status
 
 > [!NOTE]
-> Catheo is at v0.3.0, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
+> Catheo is at v0.4.0, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
 
 Releases are cut by pushing a `v*.*.*` tag; git-cliff renders the changelog and `release.yml` publishes the GitHub release.
 
@@ -188,6 +205,7 @@ Milestone history, each gate re-applied at its release:
 | v0.1.0 | Milestones M0–M5: parser, split-trait runtime, deforestation pass, the §6.1 A/B/C decision gate, first release |
 | v0.2.0 | Kleisli chains, `fold_map`, escape hatches; benchmark gates re-applied |
 | v0.3.0 | `traverse` — the two-sided boundary discipline; §6.1 gates re-applied (record in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §6.1) |
+| v0.4.0 | `join` — the §4.3 monadic multiplication on the pipeline surface; §6.1 gates re-applied (`benches/join.rs`: C ≥ B, C > A) |
 
 To verify a checkout locally:
 
