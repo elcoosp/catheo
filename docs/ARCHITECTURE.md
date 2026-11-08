@@ -246,8 +246,38 @@ let result = pipeline! {
 | `pure` / `return` | v0.1 | Compile-time identity |
 | `join` | v0.1 | Desugars to `bind(id)` |
 | Kleisli `>=>` | v0.2 | Desugars to nested bind; fusion pass extended |
-| `traverse` | v0.3+ | Deferred; traversal fusion is significantly more complex |
+| `traverse` | v0.3 | Traversable eliminator; two-sided boundary discipline (§4.3.1) |
 | `fold_map` | v0.2 | Fused eliminator; needs its own kernel |
+
+#### 4.3.1 The Traversal Boundary (v0.3)
+
+v0.3 delivers `traverse` as a *boundary* stage, not a kernel-shaped one — the "different rewriting discipline and a different kernel shape" limitation 4 predicted. The grammar:
+
+```rust
+let total: Result<u64, GateError> = pipeline! {
+    witness: VecWitness,
+    source: input,
+    map: |x| x.wrapping_mul(3),
+    traverse: (ResultWitness<GateError>, try_u64),
+    fold: (0_u64, u64::wrapping_add),
+};
+```
+
+Parse-enforced constraints, each with a spanned rejection at the offending token:
+
+- **Exactly one boundary per pipeline.** The traversal re-anchors the element flow inside the effect guard; a second `traverse` would re-wrap an already-guarded suffix in an effect the one-witness grammar cannot name.
+- **The effect is a built-in pointwise witness:** `OptionWitness` or `ResultWitness<E>`. `VecWitness` is rejected with an explanation (`Vec` traversal is cartesian, not pointwise); other effects are outside the kernel set.
+- **The container is `Vec`.** Only a multi-element container has a traversal; `Option`/`Result` sources are pointwise (the §6.1 M4 posture). The witness entry or a `Vec` ascription both satisfy this.
+- **The arrow is a one-argument closure** `A -> G<B>`; no `!` modifier exists for this stage.
+
+The lowering is two-sided:
+
+1. **The absorbable prefix chains into the traversal's iterator.** The maximal non-barrier run before the boundary rides the traversal's own adapter chain — `into_iter(xs).map(g)` feeds `run_traverse`, which appends its arrow and collects. No intermediate container exists between the source and the traversal's collected `Vec`. Barriered head stages stay sequential kernels, and the chain starts at their register.
+2. **The suffix + terminal lower inside the effect guard.** The traversal's result is the effect around the collected container, so the suffix pipeline is emitted inside the `Ok`/`Some` arm over the guard's inner binding; the `Err`/`None` arm forwards the effect unchanged. A pure fold terminal absorbs its own trailing run inside the arm (Rule 4 composes across the guard). The guard is a semantic shape — emitted identically by the fused and unfused lowerings — not a fusion artifact.
+
+The kernel is [`CategoricalTraverse::run_traverse`](../crates/catheo/src/categorical.rs), whose impls are the idiomatic std spellings — `items.map(f).collect::<Result<Vec<U>, E>>()` — so the fused output *is* the B-parity elimination by construction. The inner container is pinned to `Vec<U>`: the stable solver (§5.1) cannot normalize the doubly-projected `Self::Type<W::Type<U>>` a shape-generic signature would need.
+
+Validation: `tests/v03_gates.rs` pins emission shape, three-way value agreement, and the allocation profile deterministically (§6.1 style, no wall-clock gates); `benches/traverse.rs` re-applies the §6.1 three-way protocol over warm and cold universes — the verdict and the re-examination record are in §6.1.
 
 ---
 
@@ -292,6 +322,8 @@ Three-way comparison over representative pipelines, on `Vec<i32>` and `Vec<Strin
 
 Success criterion for v0.1: **C ≥ B** on all pipelines, and **C > A** on at least the map-heavy and fold-heavy pipelines. If C < B on any pipeline, the deforestation rule responsible is re-examined before merge.
 
+**v0.3 record (traverse).** The §8 v0.3 gate re-applied this protocol over `benches/traverse.rs`: `Vec<i32>` sources, an `i32 -> Result<u64, GateError>` traversal, warm (every element passes) and cold (first element fails) universes, 10k/100k/1M. Warm parity holds at all three sizes — C within noise of B, A ≈ 3× slower. Cold, the timed region is a first-element short-circuit plus a buffer free, and absolute cross-run numbers drift heavily on shared hardware (B itself moved 73 → 138 ns across runs of the *same* binary), so only within-run comparisons were treated as evidence. Within one long-window run (10 s measurement, 100 samples, CI ≈ ±0.5%): 100k parity (C +0.4%), 1M with C 6% *faster*, and 10k with C +16 ns under non-overlapping CIs. Per the protocol, the rule responsible — prefix absorption into the traversal's iterator — was re-examined before merge: the kernel is verbatim B's elimination (`items.map(f).collect()`, §4.3.1), the cold path carries no extra container or pass, and the residual delta does not scale with *n* and inverts sign at 1M — the signature of per-binary code layout, not of a rewriting-rule defect. Delivered on that evidence.
+
 Additional benchmarks:
 
 - **`Result`-chain error handling**: 10-stage `bind`-heavy pipeline, cold and warm.
@@ -325,7 +357,7 @@ Pipelines exceeding budget fall back to the unified state wrapper, with a `#[dep
 1. **Closure shape is constrained.** Fused closures are composed by application, not by substitution. A user closure that pattern-matches its argument destructures at the call boundary, not inside the fused body. Documented with examples.
 2. **Structural observers are detected lexically.** A `bind` closure containing `.iter` anywhere in its body is treated as an observer, even if the call is dead code. Users can force fusion with `bind!: force`.
 3. **No strict `Monad` on stable.** The dual-witness layer is a documented transitional architecture; migration is tracked against `-Znext-solver` stabilization.
-4. **No `traverse` in v0.1.** Traversal fusion requires a different rewriting discipline and a different kernel shape.
+4. **`traverse` arrived in v0.3, and its shape is constrained.** The kernel collects into a pinned `Vec<U>` (the stable solver cannot normalize a shape-generic signature, §5.1), the effect must be a built-in pointwise witness, and a pipeline admits exactly one traversal boundary. The two-sided lowering discipline is documented in §4.3.1.
 5. **LLVM is not controlled.** The performance claims are empirically validated per-pipeline, not guaranteed universally.
 
 ---
@@ -341,7 +373,8 @@ Pipelines exceeding budget fall back to the unified state wrapper, with a `#[dep
 | **M4** | `Result`-chain and Kleisli benchmarks | C ≥ B on both |
 | **M5** | Public v0.1 release | M0–M4 gates met; README limitations published |
 | **v0.2** | Kleisli, `fold_map`, escape hatches | Benchmark gates re-applied |
-| **v0.3+** | `traverse`, strict `Monad` migration | Deferred pending `-Znext-solver` |
+| **v0.3** | `traverse` — two-sided boundary discipline, `CategoricalTraverse` kernel | §6.1 gates re-applied; cold re-examination recorded (§6.1) |
+| **v0.4+** | strict `Monad` migration | Deferred pending `-Znext-solver` |
 
 **M3 is the decision gate.** If the macro-flattened output does not match idiomatic iterator chains on at least the map-heavy and fold-heavy pipelines, the architecture returns to design review. No public API is committed until M3 passes.
 
