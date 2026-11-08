@@ -1088,3 +1088,126 @@ fn traverse_stops_the_raw_capture_boundary() {
     });
     assert!(err.contains("`,`"), "separator error, got: {err}");
 }
+
+// ─── The §4.3 `join` stage (v0.4, TDD: written before the grammar) ────────
+
+#[test]
+fn join_parses_as_an_identity_bind_desugar() {
+    // §4.3: `join` desugars to `bind(id)` — one Bind stage whose closure is
+    // the hygienic identity, with no effect and no escape hatch.
+    let p = parse(quote! {
+        witness: VecWitness,
+        source: nested,
+        join,
+        collect,
+    });
+    assert_eq!(p.stages.len(), 1, "one stage");
+    let stage = &p.stages[0];
+    assert_eq!(stage.kind, StageKind::Bind, "join desugars to bind(id)");
+    assert!(!stage.fusion_barrier, "the identity observes nothing");
+    assert!(!stage.structural_observer);
+    assert_eq!(stage.modifier, StageModifier::None);
+    assert!(stage.effect.is_none(), "only `traverse` carries an effect");
+    let closure = &stage.closure;
+    assert_eq!(closure.params.len(), 1, "the stage shape: one parameter");
+    let param = closure.params[0].ident.to_string();
+    assert!(
+        param.starts_with("__pipeline"),
+        "synthetic parameter: {param}"
+    );
+    assert_eq!(closure.body.to_string(), param, "the body is the identity");
+    assert!(closure.ret.is_none());
+}
+
+#[test]
+fn join_after_a_map_prefix_desugars_in_place() {
+    let p = parse(quote! {
+        witness: VecWitness,
+        source: xs,
+        map: |x| vec![x, x],
+        join,
+        fold: (0_i64, |acc, x| acc + i64::from(x)),
+    });
+    let kinds: Vec<_> = p.stages.iter().map(|s| s.kind).collect();
+    assert_eq!(kinds, [StageKind::Map, StageKind::Bind]);
+}
+
+#[test]
+fn multiple_joins_are_admitted() {
+    // Unlike `traverse`, joining twice is sound: `W<W<W<T>>>` flattens one
+    // level per stage, and each desugared bind is an ordinary stage.
+    let p = parse(quote! {
+        witness: VecWitness,
+        source: nested,
+        join,
+        join,
+        collect,
+    });
+    let kinds: Vec<_> = p.stages.iter().map(|s| s.kind).collect();
+    assert_eq!(kinds, [StageKind::Bind, StageKind::Bind]);
+}
+
+#[test]
+fn join_after_a_terminal_is_rejected() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        fold: (0, |acc, x| acc + x),
+        join,
+    });
+    assert!(
+        err.contains("`join` after the terminal"),
+        "the terminal must be last: {err}"
+    );
+}
+
+#[test]
+fn join_bang_is_rejected() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: nested,
+        join!: force,
+    });
+    assert!(
+        err.contains("map") && err.contains("bind"),
+        "hatches are map/bind-only: {err}"
+    );
+}
+
+#[test]
+fn join_takes_no_argument() {
+    // The bare-keyword form has no value slot: both the closure spelling
+    // (which would read as `bind: |x| x` with extra steps) and the empty
+    // tuple are rejected, spanned at the offending token.
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: nested,
+        join: |x| x,
+        collect,
+    });
+    assert!(err.contains("no argument"), "bare keyword only: {err}");
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: nested,
+        join: (),
+        collect,
+    });
+    assert!(
+        err.contains("no argument"),
+        "the colon form is rejected too: {err}"
+    );
+}
+
+#[test]
+fn join_stops_the_raw_capture_boundary() {
+    // `join` must be a capture-boundary keyword like the other entries, or
+    // the colon spelling would be swallowed into the previous closure body
+    // instead of starting the next entry (§6.2: the missing separator is
+    // reported, never silently absorbed).
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        map: |x| x + 1 join: (),
+    });
+    assert!(err.contains("`,`"), "separator error, got: {err}");
+}
