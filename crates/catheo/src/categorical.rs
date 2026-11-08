@@ -202,6 +202,30 @@ pub trait CategoricalFoldMap: HKT {
         F: Fn(T) -> M;
 }
 
+/// Traversable eliminator (§4.3 v0.3 `traverse`) — the kernel shape §7
+/// limitation 4 predicted: unlike every Layer-1 kernel, it consumes an
+/// *iterator* rather than a witness container.
+///
+/// `run_traverse(items, f)` drives `f: T -> Self::Type<U>` — the pointwise
+/// effect this witness stands for — across `items` and collects the results
+/// into one effect of the same shape around the collected [`Vec`]. The
+/// inner container is pinned to `Vec<U>` because the stable-Rust solver
+/// (§5.1) cannot normalize the doubly-projected `Self::Type<W::Type<U>>` a
+/// shape-generic signature would need; the traversal grammar (§4.3 v0.3)
+/// accordingly requires a `Vec` container witness.
+///
+/// The impls are the idiomatic std spellings — `items.map(f).collect()` —
+/// so the kernel *is* the short-circuiting `FromIterator` elimination the
+/// §6.1 B-parity target spells by hand, and the first `None`/`Err` stops
+/// the traversal without forcing later elements.
+pub trait CategoricalTraverse: HKT {
+    /// Run the pointwise effect `f` across `items` and collect the results
+    /// into `Self::Type<Vec<U>>`.
+    fn run_traverse<T, U, F>(items: impl Iterator<Item = T>, f: F) -> Self::Type<Vec<U>>
+    where
+        F: FnMut(T) -> Self::Type<U>;
+}
+
 /// Kleisli composition `f >=> g` (§4.3 v0.2).
 ///
 /// Returns `A -> W::Type<C>` that runs `f` and feeds every success through
@@ -460,5 +484,39 @@ impl<E> CategoricalIntoIter for ResultWitness<E> {
     #[inline(always)]
     fn into_iter<T>(container: Self::Type<T>) -> Self::Item<T> {
         container.into_iter()
+    }
+}
+
+// ─── CategoricalTraverse kernels (§4.3 v0.3) ────────────────────────────────
+//
+// The traversal kernel is implemented for the *pointwise effect* witnesses
+// only (§2.1 built-ins): the effect is what the per-element arrow lands in,
+// and the container side contributes its `CategoricalIntoIter` iterator at
+// the call site. `VecWitness` has no impl by design — a `Vec` effect is the
+// cartesian traversal, which the grammar rejects.
+
+impl CategoricalTraverse for OptionWitness {
+    // The std `FromIterator<Option<T>> for Option<V>` elimination: the
+    // first `None` stops the fold without forcing later elements.
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_traverse<T, U, F>(items: impl Iterator<Item = T>, f: F) -> Self::Type<Vec<U>>
+    where
+        F: FnMut(T) -> Self::Type<U>,
+    {
+        items.map(f).collect::<Option<Vec<U>>>()
+    }
+}
+
+impl<E> CategoricalTraverse for ResultWitness<E> {
+    // The std `FromIterator<Result<T, E>> for Result<V, E>` elimination:
+    // the first `Err` stops the fold and is carried out unchanged.
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_traverse<T, U, F>(items: impl Iterator<Item = T>, f: F) -> Self::Type<Vec<U>>
+    where
+        F: FnMut(T) -> Self::Type<U>,
+    {
+        items.map(f).collect::<Result<Vec<U>, E>>()
     }
 }
