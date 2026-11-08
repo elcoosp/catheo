@@ -66,6 +66,7 @@ jobs:
       - run: cargo bench -p catheo --bench error_chains -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
       - run: cargo bench -p catheo --bench combinators -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
       - run: cargo bench -p catheo --bench traverse -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
+      - run: cargo bench -p catheo --bench join -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
 
   macro-stats:
     name: nightly -Zmacro-stats (§5.3)
