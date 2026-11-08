@@ -1,0 +1,5 @@
+error: `traverse` after the terminal: `fold`/`collect` must be the last entry of a pipeline
+ --> tests/ui/error_traverse_after_terminal.rs:9:9
+  |
+9 |         traverse: (OptionWitness, |x| Some(x)),
+  |         ^^^^^^^^
