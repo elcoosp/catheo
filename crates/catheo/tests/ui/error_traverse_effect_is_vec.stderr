@@ -1,0 +1,5 @@
+error: `Vec` is not a pointwise effect: a `Vec` traversal is cartesian (each element expands to a container, the results combine combinatorially); use `bind:` for flattening stages
+ --> tests/ui/error_traverse_effect_is_vec.rs:9:20
+  |
+9 |         traverse: (VecWitness, |x| vec![x]),
+  |                    ^^^^^^^^^^
