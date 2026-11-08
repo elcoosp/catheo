@@ -5,6 +5,32 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.4.0] - 2026-11-08
+
+### 🚀 Features
+
+- *(parser)* The §4.3 `join` stage — the bare-keyword monadic multiplication, desugared at parse time to `bind(id)` with spanned rejections for `join:` arguments, `join!` hatches, and post-terminal positions
+- *(codegen)* The join identity lowers to std's `.flatten()` in adapter chains (`.flat_map(f)` for a fused prefix), keeping the fused output at the lint-clean B-parity spelling
+
+### 📚 Documentation
+
+- *(readme)* Publish the v0.4 join milestone: feature bullet, grammar row, usage example, milestone table
+- *(architecture)* §4.3.2 the join stage; §4.3 table row delivered as v0.4; §8 roadmap updated
+
+### 🧪 Testing
+
+- *(v0.4)* Deterministic gates (`tests/v04_gates.rs`): emission shape, three-way agreement, allocation profile, oracle agreement over every witness
+- *(ui)* The join cases: compile-pass coverage and the three spanned rejections; combinator-list snapshot refreshed
+- *(parser)* Pin the join grammar and its fusion behavior (TDD)
+
+### ⚙️ Continuous Integration
+
+- Smoke the join bench as the seventh target
+
+### 📦 Release
+
+- Bump the workspace to 0.4.0
+
 ## [0.2.0] - 2026-11-06
 
 ### 🚀 Features
