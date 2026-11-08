@@ -859,3 +859,232 @@ fn bang_does_not_swallow_the_next_entry() {
     });
     assert!(err.contains("`,`"), "separator error, got: {err}");
 }
+
+// ─── v0.3 grammar: the `traverse:` entry (§4.3, the traversal boundary) ───
+
+#[test]
+fn traverse_entry_parses_effect_witness_and_closure() {
+    let p = parse(quote! {
+        witness: VecWitness,
+        source: xs,
+        map: |x| x * 2,
+        traverse: (OptionWitness, |x| checked(x)),
+        fold: (0_i64, |acc, x| acc + x),
+    });
+    let kinds: Vec<_> = p.stages.iter().map(|s| s.kind).collect();
+    assert_eq!(
+        kinds,
+        [StageKind::Map, StageKind::Traverse],
+        "the traversal is a boundary stage, not a terminal"
+    );
+    let traverse = &p.stages[1];
+    let effect = traverse
+        .effect
+        .as_ref()
+        .expect("the traverse stage carries its effect witness");
+    assert_eq!(effect.to_token_stream().to_string(), "OptionWitness");
+    assert_eq!(traverse.closure.stage_param().ident, "x");
+    // The traversal is a boundary in both directions: nothing fuses into
+    // the stage that follows it, and the suffix lowers inside the guard.
+    assert!(traverse.fusion_barrier);
+    assert!(!traverse.structural_observer);
+    assert_eq!(traverse.modifier, StageModifier::None);
+    match p.terminal {
+        Terminal::Fold { is_pure, .. } => assert!(is_pure),
+        other => panic!("expected fold terminal after the traversal, got {other:?}"),
+    }
+}
+
+#[test]
+fn traverse_effect_may_be_a_qualified_result_path() {
+    let p = parse(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: (catheo::ResultWitness<MyError>, parse_one),
+        collect,
+    });
+    let effect = p.stages[0]
+        .effect
+        .as_ref()
+        .expect("the effect witness parses as a path");
+    assert_eq!(
+        effect.to_token_stream().to_string(),
+        "catheo :: ResultWitness < MyError >",
+        "the last path segment decides the effect dispatch"
+    );
+}
+
+#[test]
+fn traverse_allows_a_trailing_comma_in_the_tuple() {
+    let p = parse(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: (OptionWitness, parse_one,),
+        collect,
+    });
+    assert_eq!(p.stages[0].kind, StageKind::Traverse);
+}
+
+#[test]
+fn traverse_closure_may_be_a_bare_callable() {
+    let p = parse(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: (OptionWitness, try_parse),
+        collect,
+    });
+    assert!(p.stages[0].closure.is_callable());
+    assert_eq!(p.stages[0].closure.body.to_string(), "try_parse");
+}
+
+#[test]
+fn traverse_effect_must_be_a_builtin_pointwise_witness() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: (MyEffect, parse_one),
+        collect,
+    });
+    assert!(
+        err.contains("OptionWitness") && err.contains("ResultWitness"),
+        "the effect must be spelled from the built-in pointwise set: {err}"
+    );
+}
+
+#[test]
+fn traverse_effect_must_not_be_vec() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: (VecWitness, |x| vec![x]),
+        collect,
+    });
+    assert!(
+        err.to_lowercase().contains("cartesian") || err.to_lowercase().contains("bind"),
+        "a Vec effect is the cartesian traversal, not supported: {err}"
+    );
+}
+
+#[test]
+fn traverse_requires_the_tuple_form() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: |x| Some(x),
+        collect,
+    });
+    assert!(
+        err.contains("traverse: (EffectWitness, f)"),
+        "the tuple form is mandatory: {err}"
+    );
+}
+
+#[test]
+fn traverse_tuple_requires_exactly_two_segments() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: (OptionWitness),
+        collect,
+    });
+    assert!(
+        err.contains("traverse: (EffectWitness, f)"),
+        "one segment is a malformed tuple: {err}"
+    );
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: (OptionWitness, parse_one, parse_two),
+        collect,
+    });
+    assert!(
+        err.contains("traverse: (EffectWitness, f)"),
+        "three segments are a malformed tuple: {err}"
+    );
+}
+
+#[test]
+fn traverse_requires_a_vec_container_witness() {
+    let err = parse_err(quote! {
+        witness: OptionWitness,
+        source: element,
+        traverse: (OptionWitness, |x| Some(x)),
+    });
+    assert!(
+        err.contains("Vec"),
+        "only a Vec container has a multi-element traversal: {err}"
+    );
+    // The same rejection for the parameterized spelling.
+    let err = parse_err(quote! {
+        witness: ResultWitness<MyError>,
+        source: element,
+        traverse: (OptionWitness, |x| Some(x)),
+    });
+    assert!(
+        err.contains("Vec"),
+        "Result containers are pointwise: {err}"
+    );
+}
+
+#[test]
+fn traverse_accepts_a_derived_vec_container() {
+    let p = parse(quote! {
+        source: xs as Vec<i32>,
+        traverse: (OptionWitness, |x| Some(x)),
+        collect,
+    });
+    assert_eq!(p.stages[0].kind, StageKind::Traverse);
+}
+
+#[test]
+fn traverse_after_the_terminal_is_rejected() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        fold: (0, |acc, x| acc + x),
+        traverse: (OptionWitness, |x| Some(x)),
+    });
+    assert!(
+        err.contains("last entry"),
+        "the traversal is a stage and must precede the terminal: {err}"
+    );
+}
+
+#[test]
+fn duplicate_traverse_is_rejected() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse: (OptionWitness, |x| Some(x)),
+        traverse: (ResultWitness<MyError>, parse_one),
+    });
+    assert!(
+        err.to_lowercase().contains("exactly one"),
+        "one traversal boundary per pipeline: {err}"
+    );
+}
+
+#[test]
+fn traverse_bang_is_rejected() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        traverse!: force (OptionWitness, |x| Some(x)),
+    });
+    assert!(
+        err.contains("map") && err.contains("bind"),
+        "hatches are stage-only: {err}"
+    );
+}
+
+#[test]
+fn traverse_stops_the_raw_capture_boundary() {
+    // `traverse` must be a capture-boundary keyword like the other entries,
+    // or a missing comma would be swallowed into the previous body.
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        map: |x| x + 1 traverse: (OptionWitness, |x| Some(x)),
+    });
+    assert!(err.contains("`,`"), "separator error, got: {err}");
+}
