@@ -1,0 +1,5 @@
+error: expected `traverse: (EffectWitness, f)`, e.g. `traverse: (ResultWitness<MyError>, parse_one)`
+ --> tests/ui/error_traverse_malformed_tuple.rs:8:19
+  |
+8 |         traverse: (OptionWitness),
+  |                   ^^^^^^^^^^^^^^^
