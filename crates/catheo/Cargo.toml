@@ -43,3 +43,7 @@ harness = false
 [[bench]]
 name = "traverse"
 harness = false
+
+[[bench]]
+name = "join"
+harness = false
