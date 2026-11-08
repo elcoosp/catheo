@@ -1,0 +1,5 @@
+error: escape hatches apply to `map` and `bind` stages only
+ --> tests/ui/error_traverse_bang.rs:8:9
+  |
+8 |         traverse!: force (OptionWitness, |x| Some(x)),
+  |         ^^^^^^^^
