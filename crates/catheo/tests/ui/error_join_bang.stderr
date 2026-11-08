@@ -1,0 +1,5 @@
+error: escape hatches apply to `map` and `bind` stages only
+ --> tests/ui/error_join_bang.rs:8:9
+  |
+8 |         join!: force,
+  |         ^^^^

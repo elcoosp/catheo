@@ -1,0 +1,5 @@
+error: `join` takes no argument: it lowers to `bind(id)` (§4.3), so write the bare keyword, e.g. `join` after a nested stage
+ --> tests/ui/error_join_takes_no_argument.rs:8:13
+  |
+8 |         join: |x| x,
+  |             ^

@@ -1,0 +1,5 @@
+error: `join` after the terminal: `fold`/`collect` must be the last entry of a pipeline
+ --> tests/ui/error_join_after_terminal.rs:9:9
+  |
+9 |         join,
+  |         ^^^^
