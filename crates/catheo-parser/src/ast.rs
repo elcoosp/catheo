@@ -121,6 +121,9 @@ pub enum StageKind {
     Bind,
     /// Absolute fusion barrier (Rule 3).
     Filter,
+    /// Traversal boundary (§4.3 v0.3): the absorbable prefix chains into
+    /// the traversal's iterator, the suffix lowers inside the effect guard.
+    Traverse,
 }
 
 impl StageKind {
@@ -131,6 +134,7 @@ impl StageKind {
             Self::Map => "map",
             Self::Bind => "bind",
             Self::Filter => "filter",
+            Self::Traverse => "traverse",
         }
     }
 }
@@ -251,9 +255,10 @@ pub struct Stage {
     /// `kleisli:`-desugared stage, of the morphism itself, so diagnostics
     /// point at the exact member of the chain (§3.4).
     pub span: Span,
-    /// `true` blocks upstream fusion: always for [`StageKind::Filter`],
-    /// for a [`StageKind::Bind`] whose closure is a structural observer,
-    /// and for every [`StageModifier::Materialize`] stage.
+    /// `true` blocks upstream fusion: always for [`StageKind::Filter`] and
+    /// [`StageKind::Traverse`] (the traversal is a boundary in both
+    /// directions), for a [`StageKind::Bind`] whose closure is a structural
+    /// observer, and for every [`StageModifier::Materialize`] stage.
     pub fusion_barrier: bool,
     /// Conservative lexical approximation (§3.2): the closure body mentions
     /// container-shape tokens (`.len`, `.is_empty`, `.iter`, `Some`, `None`,
@@ -261,6 +266,10 @@ pub struct Stage {
     pub structural_observer: bool,
     /// The §4.2 escape hatch written on this stage, if any.
     pub modifier: StageModifier,
+    /// The spelled effect witness of a [`StageKind::Traverse`] stage — the
+    /// `G` of `traverse: (G, f)` (§4.3 v0.3), validated at parse time to a
+    /// built-in pointwise witness. `None` on every other stage kind.
+    pub effect: Option<syn::Path>,
 }
 
 /// Pipeline terminal (§3.1).
