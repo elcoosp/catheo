@@ -32,7 +32,8 @@ pub mod witness;
 
 pub use categorical::{
     CategoricalFilter, CategoricalFold, CategoricalFoldMap, CategoricalFunctor,
-    CategoricalIntoIter, CategoricalMonad, CategoricalPointed, Monoid, kleisli,
+    CategoricalIntoIter, CategoricalMonad, CategoricalPointed, CategoricalTraverse, Monoid,
+    kleisli,
 };
 pub use catheo_macros::{pipeline, pipeline_unfused};
 pub use hkt::HKT;
