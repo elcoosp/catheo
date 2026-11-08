@@ -10,6 +10,13 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote, quote_spanned};
 use syn::spanned::Spanned;
 
+/// The hygienic synthetic parameter of the `join` desugar's identity
+/// closure (§4.3): the same capture argument as the fuse pass's
+/// `__pipeline_x` — the identifier occurs only as the closure's own
+/// parameter and as its body, so user bindings of the same spelling are
+/// shadowed, never captured.
+pub(crate) const JOIN_PARAM: &str = "__pipeline_join";
+
 /// Derive a witness path from a `source: expr as Type` ascription (§4.2).
 ///
 /// Only the three §2.1 built-ins derive: the *last* path segment decides
@@ -186,6 +193,27 @@ impl Closure {
     #[must_use]
     pub fn is_callable(&self) -> bool {
         self.params.is_empty()
+    }
+
+    /// `true` when this closure is the `join` desugar's synthesized
+    /// identity (§4.3): exactly one synthetic parameter whose body is that
+    /// parameter alone.
+    ///
+    /// The codegen uses this to lower the identity to std's `.flatten()` in
+    /// adapter chains — value-identical to `bind(id)` on every built-in
+    /// witness (`flatten` *is* `flat_map(id)` in std) — because a literal
+    /// `.flat_map(|x| x)` would trip `clippy::flat_map_identity` in user
+    /// builds, and the house posture is that the fused output *is* the
+    /// idiomatic B-parity elimination.
+    #[must_use]
+    pub fn is_join_identity(&self) -> bool {
+        match self.params.as_slice() {
+            [param] => {
+                let ident = param.ident.to_string();
+                ident == JOIN_PARAM && self.body.to_string() == ident
+            }
+            _ => false,
+        }
     }
 
     /// Reassemble the validated closure into a callable expression:
