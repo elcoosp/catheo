@@ -183,6 +183,9 @@ pub fn token_count(tokens: &TokenStream) -> usize {
 /// (Rule 4); `collect`/container terminals chain into the user-annotated
 /// `collect()`. Every user callable lands in a `Fn`-bounded argument
 /// position, so closure parameters are pinned by the expected signature.
+///
+/// A `traverse:` entry (§4.3 v0.3) splits the emission at the traversal
+/// boundary: see [`emit_traversal`].
 fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
     let witness = &pipeline.witness.path;
 
@@ -203,7 +206,43 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
         }),
     }
 
-    let mut current = quote!(__catheo_source);
+    let source_register = quote!(__catheo_source);
+
+    if let Some(index) = pipeline
+        .stages
+        .iter()
+        .position(|stage| stage.kind == StageKind::Traverse)
+    {
+        emit_traversal(pipeline, index, source_register, fuse, &mut parts);
+    } else {
+        let run = emit_stage_run(
+            witness,
+            source_register,
+            &pipeline.stages,
+            &pipeline.terminal,
+            fuse,
+        );
+        parts.push(run);
+    }
+
+    quote! {{ #(#parts)* }}
+}
+
+/// Emit one stage run: sequential kernel bindings for the barriered head,
+/// then the terminal over the current register (§3.4 flat `let` registers).
+///
+/// `fuse` selects the fused absorption for the terminal's trailing run —
+/// the same shape whether the run starts at the source (the boundary-free
+/// pipeline) or at the traversal guard's inner binding (the §4.3 v0.3
+/// suffix), which is what makes Rule 4 compose across the guard.
+fn emit_stage_run(
+    witness: &syn::Path,
+    source_register: TokenStream,
+    stages: &[Stage],
+    terminal: &Terminal,
+    fuse: bool,
+) -> TokenStream {
+    let mut parts: Vec<TokenStream> = Vec::new();
 
     // Pointwise witnesses (zero-or-one-element projections) keep the whole
     // run at the kernel shape: there is no container to deforest, so the
@@ -218,21 +257,23 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
     // re-fused for emission. `fold_map` has no purity question — the
     // accumulator never appears in user code — so it always absorbs.
     let split = if fuse && !pointwise {
-        match &pipeline.terminal {
+        match terminal {
             Terminal::Fold { is_pure: true, .. }
             | Terminal::FoldMap { .. }
             | Terminal::Collect(_)
-            | Terminal::None => absorbable_suffix(&pipeline.stages),
+            | Terminal::None => absorbable_suffix(stages),
             Terminal::Fold { is_pure: false, .. } => 0,
         }
     } else {
         0
     };
-    let prefix = &pipeline.stages[..pipeline.stages.len() - split];
-    let suffix = &pipeline.stages[pipeline.stages.len() - split..];
+    let prefix = &stages[..stages.len() - split];
+    let suffix = &stages[stages.len() - split..];
 
-    // Prefix: one monomorphic kernel binding per stage (§3.4 flat `let`
-    // registers; sequential in both lowerings — see module docs).
+    let mut current = source_register;
+
+    // Head: one monomorphic kernel binding per barriered stage (§3.4 flat
+    // `let` registers; sequential in both lowerings — see module docs).
     for (index, stage) in prefix.iter().enumerate() {
         let state = format_ident!("__catheo_state_{index}");
         let closure = stage.closure.to_callable_tokens();
@@ -248,7 +289,7 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
     }
 
     // Terminal.
-    let tail = match &pipeline.terminal {
+    let tail = match terminal {
         Terminal::Fold {
             init,
             closure,
@@ -330,7 +371,145 @@ fn emit_pipeline(pipeline: &Pipeline, fuse: bool) -> TokenStream {
     };
     parts.push(tail);
 
-    quote! {{ #(#parts)* }}
+    quote! { #(#parts)* }
+}
+
+/// Emit the §4.3 v0.3 traversal boundary at `stages[index]` (the first and
+/// only `traverse:` entry — the parser enforces the cardinality).
+///
+/// The lowering is the *different rewriting discipline* §7 limitation 4
+/// predicted, split around the boundary:
+///
+/// - **The absorbable prefix chains into the traversal's iterator.** The
+///   maximal non-barrier run before the boundary (Rules 1–2 view) rides
+///   the traversal's adapter chain, exactly like a fold's absorbed
+///   suffix: `into_iter(xs).map(g).map(f)` lands in `run_traverse`, which
+///   appends its own arrow and collects — no intermediate container
+///   between the source and the traversal's own `Vec`. Barriered stages
+///   (filters, observing binds) stay sequential kernels and the chain
+///   starts from their register.
+/// - **The suffix + terminal lower inside the effect guard.** The
+///   traversal's result is the effect around the collected container, so
+///   the suffix pipeline is emitted inside the effect's `Ok`/`Some` arm
+///   over the guard's inner binding, and the `Err`/`None` arm forwards the
+///   effect unchanged. A pure fold terminal absorbs its own trailing run
+///   *inside* the arm (Rule 4 composes across the guard); the sequential
+///   lowering emits the same guard with per-stage kernels — the guard is a
+///   semantic shape, not a fusion artifact.
+/// - **No identity guard.** An empty suffix with no terminal evaluates to
+///   the traversal itself; wrapping it in a match would emit an identity.
+fn emit_traversal(
+    pipeline: &Pipeline,
+    index: usize,
+    source_register: TokenStream,
+    fuse: bool,
+    parts: &mut Vec<TokenStream>,
+) {
+    let witness = &pipeline.witness.path;
+    let traverse = &pipeline.stages[index];
+    let effect = traverse
+        .effect
+        .as_ref()
+        .expect("traverse stages carry their effect witness (parse-validated)");
+    let pre = &pipeline.stages[..index];
+    let post = &pipeline.stages[index + 1..];
+
+    // The maximal non-barrier run before the boundary chains into the
+    // traversal's iterator; everything before it stays at the kernel shape.
+    let absorbable = if fuse { absorbable_suffix(pre) } else { 0 };
+    let head = &pre[..pre.len() - absorbable];
+    let chain_stages = &pre[pre.len() - absorbable..];
+
+    let mut current = source_register;
+    for (stage_index, stage) in head.iter().enumerate() {
+        let state = format_ident!("__catheo_state_{stage_index}");
+        let closure = stage.closure.to_callable_tokens();
+        let kernel = kernel_trait(stage.kind);
+        let run = kernel_method(stage.kind);
+        parts.push(quote_spanned! {stage.span=>
+            let #state = <#witness as #kernel>::#run(#current, #closure);
+        });
+        current = quote!(#state);
+    }
+
+    let traversal_state = format_ident!("__catheo_traversal");
+    let arrow = traverse.closure.to_callable_tokens();
+    let chain = if fuse {
+        chain_adapters(chain_stages)
+    } else {
+        TokenStream::new()
+    };
+    parts.push(quote_spanned! {traverse.span=>
+        let #traversal_state = <#effect as ::catheo::CategoricalTraverse>::run_traverse (
+            <#witness as ::catheo::CategoricalIntoIter>::into_iter(#current) #chain ,
+            #arrow ,
+        );
+    });
+
+    if post.is_empty() && matches!(pipeline.terminal, Terminal::None) {
+        parts.push(quote!(#traversal_state));
+        return;
+    }
+
+    let inner = format_ident!("__catheo_inner");
+    let stage_run = emit_stage_run(witness, quote!(#inner), post, &pipeline.terminal, fuse);
+    parts.push(effect_guard(
+        effect,
+        traverse.span,
+        &traversal_state,
+        &inner,
+        &stage_run,
+    ));
+}
+
+/// Wrap a suffix stage-run in the effect guard: the collected container is
+/// bound by the pure arm, the impure arm forwards the effect unchanged.
+///
+/// The constructor spelling dispatches on the effect witness's *last path
+/// segment* — the same conservative posture as the codegen's pointwise
+/// dispatch (§6.1 M4): the parser has already validated the spelling, so a
+/// miss is unreachable here.
+fn effect_guard(
+    effect: &syn::Path,
+    span: proc_macro2::Span,
+    traversed: &syn::Ident,
+    inner: &syn::Ident,
+    stage_run: &TokenStream,
+) -> TokenStream {
+    let effect_name = effect
+        .segments
+        .last()
+        .map_or_else(String::new, |segment| segment.ident.to_string());
+    // The guarded suffix is bound to a register *before* the pure arm
+    // re-wraps it: `Ok({ block })` would put braces in function-argument
+    // position (`unused_braces` fires on the user's `traverse:` span), and
+    // the braces around a `let`-leading initializer are necessary, so the
+    // lint can never fire on them.
+    match effect_name.as_str() {
+        "OptionWitness" => quote_spanned! {span=>
+            match #traversed {
+                :: core :: option :: Option :: Some (#inner) => {
+                    let __catheo_guarded = { #stage_run };
+                    :: core :: option :: Option :: Some (__catheo_guarded)
+                }
+                :: core :: option :: Option :: None => :: core :: option :: Option :: None ,
+            }
+        },
+        "ResultWitness" => quote_spanned! {span=>
+            match #traversed {
+                :: core :: result :: Result :: Ok (#inner) => {
+                    let __catheo_guarded = { #stage_run };
+                    :: core :: result :: Result :: Ok (__catheo_guarded)
+                }
+                :: core :: result :: Result :: Err (__catheo_err) => {
+                    :: core :: result :: Result :: Err (__catheo_err)
+                }
+            }
+        },
+        other => {
+            unreachable!("parse_traverse validated the effect spelling, found `{other}`")
+        }
+    }
 }
 
 /// Render a run of non-barrier stages as chained `Fn`-bounded adapters:
@@ -360,6 +539,11 @@ fn kernel_trait(kind: StageKind) -> TokenStream {
         StageKind::Map => quote! { ::catheo::CategoricalFunctor },
         StageKind::Bind => quote! { ::catheo::CategoricalMonad },
         StageKind::Filter => quote! { ::catheo::CategoricalFilter },
+        // Traversal stages lower through [`emit_traversal`] — the boundary
+        // splits the emission and is never a kernel binding.
+        StageKind::Traverse => {
+            unreachable!("traverse stages are the emission boundary, not kernels")
+        }
     }
 }
 
@@ -368,6 +552,9 @@ fn kernel_method(kind: StageKind) -> TokenStream {
         StageKind::Map => quote! { run_map },
         StageKind::Bind => quote! { run_bind },
         StageKind::Filter => quote! { run_filter },
+        StageKind::Traverse => {
+            unreachable!("traverse stages are the emission boundary, not kernels")
+        }
     }
 }
 
@@ -941,5 +1128,205 @@ mod tests {
             via_enum.to_string(),
             "emit_sequential is Lowering::Sequential"
         );
+    }
+
+    // ─── v0.3: the §4.3 traversal boundary ─────────────────────────────────
+    //
+    // The traversal is the one stage whose neighbors lower on *both* sides
+    // of it: the non-barrier prefix chains into the traversal's iterator
+    // (Rules 1–2 extended to the boundary), and the suffix + terminal lower
+    // *inside* the effect guard. These tests pin the emission shape.
+
+    #[test]
+    fn pure_prefix_absorbs_into_the_traversal_chain() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            traverse: (OptionWitness, |x| checked(x)),
+            fold: (0_i64, |acc, x| acc + x),
+        });
+        assert_eq!(out.matches("run_traverse").count(), 1, "{out}");
+        assert!(
+            !out.contains("run_map"),
+            "the prefix map rides the traversal chain: {out}"
+        );
+        assert!(
+            !out.contains("run_fold"),
+            "the fold lowers inside the guard: {out}"
+        );
+        assert!(
+            out.contains("into_iter (__catheo_source) . map (| x | x * 2)",),
+            "the absorbable prefix chains into the traversal's iterator: {out}"
+        );
+        assert!(
+            out.contains("< OptionWitness as :: catheo :: CategoricalTraverse > :: run_traverse"),
+            "the kernel dispatches on the effect witness: {out}"
+        );
+        assert!(
+            out.contains(":: core :: option :: Option :: Some ("),
+            "the guard wraps the suffix: {out}"
+        );
+        assert!(
+            out.contains(
+                ":: core :: option :: Option :: None => :: core :: option :: Option :: None"
+            ),
+            "the empty arm preserves the effect: {out}"
+        );
+    }
+
+    #[test]
+    fn traversal_guard_spells_the_result_arms() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            traverse: (ResultWitness<MyError>, parse_one),
+            fold: (0_i64, |acc, x| acc + x),
+        });
+        assert!(out.contains(":: core :: result :: Result :: Ok ("), "{out}");
+        assert!(
+            out.contains(":: core :: result :: Result :: Err (__catheo_err)"),
+            "the Err arm forwards the original error: {out}"
+        );
+    }
+
+    #[test]
+    fn whole_prefix_chain_fuses_into_the_traversal() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            map: |y| y.to_string(),
+            bind: |s| wrap(s),
+            traverse: (OptionWitness, |x| checked(x)),
+            collect,
+        });
+        assert!(
+            out.contains(
+                "into_iter (__catheo_source) . map (| x | x * 2) . map (| y | y . to_string ()) . flat_map (| s | wrap (s))"
+            ),
+            "Rules 1–2 compose across the boundary into the traversal: {out}"
+        );
+        assert!(!out.contains("run_bind"), "{out}");
+        assert_eq!(out.matches("run_traverse").count(), 1, "{out}");
+    }
+
+    #[test]
+    fn observing_bind_before_the_traversal_stays_a_kernel() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            bind: |row| row.iter().collect(),
+            traverse: (OptionWitness, |x| checked(x)),
+            collect,
+        });
+        assert!(
+            out.contains("run_bind"),
+            "the observer is a barrier for the traversal too: {out}"
+        );
+        assert!(
+            out.contains("into_iter (__catheo_state_0)"),
+            "the traversal chains from the barrier's register: {out}"
+        );
+    }
+
+    #[test]
+    fn suffix_lowers_inside_the_effect_guard() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            traverse: (OptionWitness, |x| checked(x)),
+            filter: |x| *x > 0,
+            collect,
+        });
+        assert!(out.contains("run_filter"), "filters stay kernels: {out}");
+        assert!(
+            out.contains(":: run_filter (__catheo_inner , | x | * x > 0)"),
+            "the guard's inner binding is the suffix's source: {out}"
+        );
+        // Order: the guard's Some arm contains the suffix work.
+        let guard = out
+            .find(":: core :: option :: Option :: Some (")
+            .expect("guard present");
+        let filter = out.find("run_filter").expect("filter present");
+        assert!(guard < filter, "run_filter lives inside the guard: {out}");
+    }
+
+    #[test]
+    fn pure_suffix_fold_absorbs_inside_the_guard() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            traverse: (OptionWitness, |x| checked(x)),
+            map: |x| x.wrapping_add(1),
+            fold: (0_i64, |acc, x| acc + x),
+        });
+        assert!(
+            out.contains(
+                "into_iter (__catheo_inner) . map (| x | x . wrapping_add (1)) . fold (0_i64"
+            ),
+            "Rule 4 applies to the suffix inside the guard: {out}"
+        );
+        assert!(!out.contains("run_fold"), "{out}");
+        assert!(!out.contains("run_map"), "{out}");
+    }
+
+    #[test]
+    fn traversal_without_a_suffix_or_terminal_is_the_traversal() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            traverse: (OptionWitness, |x| Some(x)),
+        });
+        assert_eq!(out.matches("run_traverse").count(), 1, "{out}");
+        assert!(
+            !out.contains(":: core :: option :: Option :: Some ("),
+            "no identity guard is emitted over an empty suffix: {out}"
+        );
+    }
+
+    #[test]
+    fn sequential_traversal_keeps_kernels_on_both_sides() {
+        let out = sequential(quote! {
+            witness: VecWitness,
+            source: xs,
+            map: |x| x * 2,
+            traverse: (OptionWitness, |x| checked(x)),
+            map: |y| y.wrapping_add(1),
+            fold: (0_i64, |acc, x| acc + x),
+        });
+        assert!(
+            out.contains("run_map"),
+            "the prefix map stays a kernel: {out}"
+        );
+        assert_eq!(out.matches("run_traverse").count(), 1, "{out}");
+        assert!(
+            out.contains("run_fold"),
+            "the suffix fold stays a kernel: {out}"
+        );
+        assert!(
+            out.contains(":: core :: option :: Option :: Some ("),
+            "the guard is a semantic shape, not a fusion artifact: {out}"
+        );
+        assert!(
+            !out.contains(". map ("),
+            "no absorption in the oracle: {out}"
+        );
+    }
+
+    #[test]
+    fn traverse_collect_terminal_chains_inside_the_guard() {
+        let out = emitted(quote! {
+            witness: VecWitness,
+            source: xs,
+            traverse: (ResultWitness<MyError>, parse_one),
+            map: |x| x.wrapping_mul(2),
+            collect,
+        });
+        assert!(
+            out.contains("into_iter (__catheo_inner) . map (| x | x . wrapping_mul (2))"),
+            "the collect chains the suffix inside the guard: {out}"
+        );
+        assert!(out.contains(". collect ()"), "{out}");
     }
 }
