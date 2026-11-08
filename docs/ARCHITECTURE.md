@@ -244,7 +244,7 @@ let result = pipeline! {
 | `filter` | v0.1 | Absolute barrier; no fusion |
 | `fold` | v0.1 | Universal eliminator; absorbs pure prefixes |
 | `pure` / `return` | v0.1 | Compile-time identity |
-| `join` | v0.1 | Desugars to `bind(id)` |
+| `join` | v0.4 | Bare-keyword stage; desugars to `bind(id)` (§4.3.2) |
 | Kleisli `>=>` | v0.2 | Desugars to nested bind; fusion pass extended |
 | `traverse` | v0.3 | Traversable eliminator; two-sided boundary discipline (§4.3.1) |
 | `fold_map` | v0.2 | Fused eliminator; needs its own kernel |
@@ -278,6 +278,14 @@ The lowering is two-sided:
 The kernel is [`CategoricalTraverse::run_traverse`](../crates/catheo/src/categorical.rs), whose impls are the idiomatic std spellings — `items.map(f).collect::<Result<Vec<U>, E>>()` — so the fused output *is* the B-parity elimination by construction. The inner container is pinned to `Vec<U>`: the stable solver (§5.1) cannot normalize the doubly-projected `Self::Type<W::Type<U>>` a shape-generic signature would need.
 
 Validation: `tests/v03_gates.rs` pins emission shape, three-way value agreement, and the allocation profile deterministically (§6.1 style, no wall-clock gates); `benches/traverse.rs` re-applies the §6.1 three-way protocol over warm and cold universes — the verdict and the re-examination record are in §6.1.
+
+#### 4.3.2 The Join Stage (v0.4)
+
+§4.3 promised `join` — "desugars to `bind(id)`" — from the first cut of the combinator table, but the grammar never admitted it: the only spelling was a hand-written `bind: |x| x`, which reads as a no-op and carries no documentation or diagnostics. v0.4 closes that runtime-to-grammar seam. The entry is the bare keyword — the desugar has no user-supplied callable, so `join:` or any argument is rejected, spanned at the offending token, as are the §4.2 hatches and a position after the terminal.
+
+The desugar is the `parse_kleisli` posture in miniature: one ordinary `StageKind::Bind` stage whose closure is the hygienic identity (`__pipeline_join`), so the fusion pass needs no new rule — Rules 1–2 apply across it, Rule 4 absorbs over it, and the §3.2 rescan re-flags the product when an absorbed body observes shape. The lowering is the one deliberate refinement: in adapter chains the identity renders as std's `.flatten()`, and a map fused in front of it (Rule 2) takes the `.flat_map` position instead of forming `.map(f).flatten()` — value-identical eliminations on every witness, and the spellings user-side lints (`clippy::flat_map_identity`, `clippy::map_flatten`) rightly demand. The kernel path is untouched: `CategoricalMonad::run_join` (the provided `run_bind(id)`) dispatches for the pointwise witnesses exactly as before.
+
+Validation: `tests/v04_gates.rs` pins the emission shape, three-way value agreement, the allocation profile, and oracle agreement over every witness (deterministic, §6.1 style); `benches/join.rs` re-applies the §6.1 three-way protocol — over the map-prefix flatten shape (10k/100k/1M), the fused `flat_map` chain holds parity with B (C ≈ B within noise) and A, the two-materialization spelling, is ~27× slower. Multiple `join` stages are admitted (each flattens one level); the runtime half (`run_join`, `tests/runtime_pointed_join.rs`) shipped with the v0.1 kernels and is unchanged.
 
 ---
 
@@ -374,7 +382,8 @@ Pipelines exceeding budget fall back to the unified state wrapper, with a `#[dep
 | **M5** | Public v0.1 release | M0–M4 gates met; README limitations published |
 | **v0.2** | Kleisli, `fold_map`, escape hatches | Benchmark gates re-applied |
 | **v0.3** | `traverse` — two-sided boundary discipline, `CategoricalTraverse` kernel | §6.1 gates re-applied; cold re-examination recorded (§6.1) |
-| **v0.4+** | strict `Monad` migration | Deferred pending `-Znext-solver` |
+| **v0.4** | `join` — the §4.3 monadic multiplication on the pipeline surface | §6.1 gates re-applied (deterministic forms in `tests/v04_gates.rs`) |
+| **v0.5+** | strict `Monad` migration | Deferred pending `-Znext-solver` |
 
 **M3 is the decision gate.** If the macro-flattened output does not match idiomatic iterator chains on at least the map-heavy and fold-heavy pipelines, the architecture returns to design review. No public API is committed until M3 passes.
 
