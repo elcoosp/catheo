@@ -39,3 +39,7 @@ harness = false
 [[bench]]
 name = "combinators"
 harness = false
+
+[[bench]]
+name = "traverse"
+harness = false
