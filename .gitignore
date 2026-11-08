@@ -11,3 +11,6 @@
 .idea/
 .vscode/
 *.swp
+
+# Per-file commit driver (local tooling, not part of the history it writes)
+/commit.sh
