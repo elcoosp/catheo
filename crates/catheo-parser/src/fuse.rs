@@ -574,4 +574,69 @@ mod tests {
         assert_eq!(absorbable_components(&fuse_components(&original)), 2);
         assert_eq!(absorbable_components(&[]), 0);
     }
+
+    // ─── The §4.3 join stage (v0.4): an ordinary bind for the pass ──────────
+
+    #[test]
+    fn map_into_join_fuses_to_one_bind() {
+        // The identity is not a structural observer, so Rule 2 absorbs the
+        // map into the join exactly as it would any producer/consumer pair.
+        let fused = fuse_stages(&stages(quote! {
+            map: |x| vec![x, x],
+            join,
+        }));
+        assert_eq!(kinds(&fused), [StageKind::Bind], "Rule 2 yields a Bind");
+        assert!(!fused[0].fusion_barrier);
+        assert!(!fused[0].structural_observer);
+        let body = body_of(&fused[0]);
+        assert!(body.contains("vec ! [x , x]"), "{body}");
+        assert!(
+            body.contains("__pipeline_join"),
+            "the identity rides the fused body: {body}"
+        );
+    }
+
+    #[test]
+    fn join_then_map_never_fuses() {
+        // No rewrite pairs Bind→*: the join stays its own kernel.
+        let fused = fuse_stages(&stages(quote! {
+            join,
+            map: |y| y + 1,
+        }));
+        assert_eq!(kinds(&fused), [StageKind::Bind, StageKind::Map]);
+    }
+
+    #[test]
+    fn join_is_absorbable_by_a_pure_fold() {
+        // Rule 4: the trailing non-barrier run includes the identity bind.
+        // The AST view counts raw stages (3); the component view has the
+        // map+join pair already merged into one Bind (Rule 2), so the
+        // absorbable run there is the fused bind plus the trailing map.
+        let original = stages(quote! {
+            map: |x| vec![x, x],
+            join,
+            map: |y| y + 1,
+        });
+        assert_eq!(absorbable_suffix(&original), 3);
+        let comps = fuse_components(&original);
+        assert_eq!(absorbable_components(&comps), 2);
+        assert_eq!(comps[0].callables.len(), 2, "Rule 2 merged map into join");
+        assert!(!comps[0].fusion_barrier);
+        assert!(!comps[1].fusion_barrier);
+    }
+
+    #[test]
+    fn an_observer_map_before_join_rescans_to_a_barrier() {
+        // §3.2: the composed body mentions `Some`, so the fused bind is
+        // re-flagged as an observer — a false positive is acceptable, a
+        // false negative is not. The value semantics are unchanged (the
+        // runtime gates keep fused == unfused for this shape).
+        let fused = fuse_stages(&stages(quote! {
+            map: |x| Some(x),
+            join,
+        }));
+        assert_eq!(kinds(&fused), [StageKind::Bind]);
+        assert!(fused[0].structural_observer, "the rescan catches `Some`");
+        assert!(fused[0].fusion_barrier);
+    }
 }
