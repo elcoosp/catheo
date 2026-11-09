@@ -4,7 +4,12 @@
 //! composition down to flat, fused imperative loops (see
 //! `docs/ARCHITECTURE.md`). This crate is the user-facing facade: it
 //! re-exports the [`pipeline!`] macro and the runtime layer (witnesses and
-//! split-trait kernels) that the macro's generated code calls into.
+//! split-trait kernels) that the macro's generated code calls into. The
+//! runnable consumer demos live in `crates/catheo/examples/`: `quickstart`
+//! (the README snippet), `fallible_pipeline` (the §4.3 traversal boundary),
+//! and `instrumented_pipeline` (the observable seam — `tracing` spans
+//! around the run, `miette` help text on the error path; dev-only
+//! dependencies that no shipped artifact links).
 //!
 //! ```
 //! use catheo::{pipeline, VecWitness};
