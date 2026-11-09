@@ -105,6 +105,14 @@ fn workspace_version_is_the_public_release_version() {
 fn changelog_documents_the_releases() {
     let changelog = read("CHANGELOG.md");
     assert!(
+        changelog.contains("## [0.5.0]"),
+        "the git-cliff changelog must document the 0.5.0 release: {changelog}"
+    );
+    assert!(
+        changelog.contains("## [0.4.2]"),
+        "the changelog must document the 0.4.2 maintenance release: {changelog}"
+    );
+    assert!(
         changelog.contains("## [0.4.0]"),
         "the git-cliff changelog must document the 0.4.0 release: {changelog}"
     );
@@ -121,6 +129,10 @@ fn changelog_documents_the_releases() {
 #[test]
 fn readme_status_records_the_release_history() {
     let readme = read("README.md");
+    assert!(
+        readme.contains("v0.5.0") && readme.contains("`Monad`"),
+        "the README status must record the v0.5 strict-Monad milestone"
+    );
     assert!(
         readme.contains("v0.4.0") && readme.contains("join"),
         "the README status must record the v0.4 join milestone"
