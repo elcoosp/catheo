@@ -13,7 +13,6 @@
   <p>
     <a href="https://github.com/elcoosp/catheo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elcoosp/catheo/ci.yml?style=flat-square" alt="CI"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/MSRV-1.99%2B-informational?style=flat-square" alt="MSRV 1.99+"/></a>
-    <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/version-0.4.1-informational?style=flat-square" alt="version 0.4.0"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/clippy-pedantic%20deny-informational?style=flat-square" alt="clippy pedantic deny"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-informational?style=flat-square" alt="MIT license"/></a>
   </p>
@@ -51,13 +50,13 @@ fn main() {
 
 The two `map` stages and the `fold` fuse into a single pass; no intermediate `Vec` is built between source and eliminator.
 
-Every snippet in this README is runnable: the demos live in [`crates/catheo/examples`](crates/catheo/examples) — `cargo run -p catheo --example quickstart` (this pipeline), `fallible_pipeline` (the traversal boundary), and `instrumented_pipeline` (a `tracing`-spanned run with `miette` help text on the error path).
+Every snippet in this README is runnable: the demos live in [`crates/catheo/examples`](crates/catheo/examples) — `cargo run -p catheo --example quickstart` (this pipeline), `fallible_pipeline` (the traversal boundary), `monadic_surface` (`join` and `fold_map`), and `instrumented_pipeline` (a `tracing`-spanned run with `miette` help text on the error path).
 
 ## Features
 
 - **Fusion by construction.** A linear-time deforestation pass (`crates/catheo-parser/src/fuse.rs`) fuses adjacent `map`s into non-observing `bind`s and absorbs pure `fold`s, so the flagship `map → map → fold` shape runs as one loop with no intermediate containers.
 - **Deterministic, not anecdotal, performance.** `catheo-counting-alloc` is a thread-local counting allocator used by `crates/catheo/tests/v02_gates.rs` to pin three-way value agreement, allocation profiles, and fused-emission shape lockstep as plain `cargo test` gates — no wall-clock flakiness in CI.
-- **Laws checked, errors spanned.** Functor identity/composition and monad left/right identity/associativity are swept per witness in `crates/catheo/tests/categorical_laws.rs`; a 41-case trybuild suite (9 compile-pass, 32 compile-fail) in `crates/catheo/tests/ui/` pins every rejection to the offending user token, not macro internals.
+- **Laws checked, errors spanned.** Functor identity/composition and monad left/right identity/associativity are swept per witness in `crates/catheo/tests/categorical_laws.rs`; a 40-case trybuild suite (9 compile-pass, 31 compile-fail) in `crates/catheo/tests/ui/` pins every rejection to the offending user token, not macro internals.
 - **Kleisli chains and monoid folds.** `kleisli: (f, g, …)` desugars the `>=>` chain to nested binds and still fuses across the boundary; `fold_map:` eliminates into any `Monoid` — the 12 integer types, `f32`/`f64`, `()`, `String`, `Vec<T>`, `Option<T>`, and tuples (impls in `crates/catheo/src/categorical.rs`).
 - **Monadic multiplication as a stage.** `join` (v0.4) flattens one nesting level of `W<W<T>>` — the §4.3 `bind(id)` desugar as a bare keyword, lowering to std's `.flatten()` on the fused path, so `map → join` runs as a single `flat_map` pass with no intermediate containers.
 - **Traversal across an effect.** `traverse: (ResultWitness<E>, f)` (v0.3) runs a pointwise effect across the container and collects one effect around a `Vec` — std's short-circuiting `FromIterator` elimination, with the absorbable prefix chained into the traversal's iterator and the suffix folded inside the effect guard. No intermediate container between source and traversal; one traversal boundary per pipeline by grammar.
@@ -196,7 +195,7 @@ Witnesses are `VecWitness`, `OptionWitness`, and `ResultWitness<E>` — or none 
 ## Status
 
 > [!NOTE]
-> Catheo is at v0.4.0, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
+> Catheo is at v0.4, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
 
 Releases are cut by pushing a `v*.*.*` tag; git-cliff renders the changelog and `release.yml` publishes the GitHub release.
 
@@ -231,5 +230,5 @@ The published form of `docs/ARCHITECTURE.md` §7 — read the full document for 
 ## Learn more
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the full design: architectural layers, the fusion rules and their limits, the benchmark protocol, and the roadmap.
-- [crates/catheo/examples](crates/catheo/examples) — the runnable consumer demos: `quickstart`, `fallible_pipeline`, and `instrumented_pipeline` (the observable seam: `tracing` spans + `miette` help text).
+- [crates/catheo/examples](crates/catheo/examples) — the runnable consumer demos: `quickstart`, `fallible_pipeline`, `monadic_surface` (`join` + `fold_map`), and `instrumented_pipeline` (the observable seam: `tracing` spans + `miette` help text).
 - [CHANGELOG.md](CHANGELOG.md) — release history, generated by git-cliff from Conventional Commits.
