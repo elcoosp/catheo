@@ -54,3 +54,6 @@ harness = false
 [[bench]]
 name = "join"
 harness = false
+[[bench]]
+name = "monad"
+harness = false
