@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT"
@@ -26,9 +26,9 @@ trybuild = "1.0.122"
 criterion = "0.8.2"
 
 # Internal
-catheo-parser = { path = "crates/catheo-parser", version = "0.4.0" }
-catheo-macros = { path = "crates/catheo-macros", version = "0.4.0" }
-catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.4.0" }
+catheo-parser = { path = "crates/catheo-parser", version = "0.4.1" }
+catheo-macros = { path = "crates/catheo-macros", version = "0.4.1" }
+catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.4.1" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
