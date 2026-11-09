@@ -101,6 +101,69 @@ fn workspace_version_is_the_public_release_version() {
     }
 }
 
+/// The internal workspace-dependency pins, as shipped in the root
+/// `Cargo.toml`'s `[workspace.dependencies]` table. The release convention
+/// (recorded in the v0.4.0 bump message) is that *the workspace version and
+/// the internal dependency pins move together*: the pins exist so the
+/// member crates can be published as a set with matching minimum
+/// requirements. The v0.5.0 bump missed them (`^0.4.1` against 0.5.0
+/// members), which broke workspace resolution outright — this gate keeps
+/// the drift impossible.
+const INTERNAL_PINS: [&str; 3] = ["catheo-parser", "catheo-macros", "catheo-counting-alloc"];
+
+#[test]
+fn internal_dependency_pins_track_the_workspace_version() {
+    let manifest = read("Cargo.toml");
+    let declared_version = manifest
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("version = "))
+        .map(|value| value.trim().trim_matches('"'))
+        .expect("the workspace manifest declares a version");
+
+    // Scope the scan to the `[workspace.dependencies]` table so a
+    // third-party `version = "…"` line can never satisfy the gate.
+    let mut table = false;
+    let mut found: Vec<&str> = Vec::new();
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[workspace.dependencies]" {
+            table = true;
+            continue;
+        }
+        if table && trimmed.starts_with('[') {
+            break;
+        }
+        if !table {
+            continue;
+        }
+        for pin in INTERNAL_PINS {
+            if trimmed.starts_with(&format!("{pin} =")) && trimmed.contains("version = \"") {
+                let req = trimmed
+                    .rsplit("version = \"")
+                    .next()
+                    .and_then(|tail| tail.split('"').next())
+                    .expect("the pin line carries a quoted version requirement");
+                assert_eq!(
+                    req, declared_version,
+                    "the internal pin `{pin}` must track the workspace \
+                     version: the release convention is that the workspace \
+                     version and the internal dependency pins move together \
+                     (the v0.5.0 bump missed them and the tree stopped \
+                     resolving)"
+                );
+                found.push(pin);
+            }
+        }
+    }
+    for pin in INTERNAL_PINS {
+        assert!(
+            found.contains(&pin),
+            "the `[workspace.dependencies]` table must pin `{pin}` with an \
+             explicit `version = \"…\"` requirement"
+        );
+    }
+}
+
 #[test]
 fn changelog_documents_the_releases() {
     let changelog = read("CHANGELOG.md");

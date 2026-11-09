@@ -25,10 +25,14 @@ syn = { version = "3.0.9", default-features = false, features = ["derive", "pars
 trybuild = "1.0.122"
 criterion = "0.8.2"
 
-# Internal
-catheo-parser = { path = "crates/catheo-parser", version = "0.4.1" }
-catheo-macros = { path = "crates/catheo-macros", version = "0.4.1" }
-catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.4.1" }
+# Internal — the release convention (v0.4.0 bump message) is that the
+# workspace version and these pins move together; the v0.5.0 bump missed
+# them and the tree stopped resolving, so
+# `tests/release_gates.rs::internal_dependency_pins_track_the_workspace_version`
+# now keeps the drift impossible.
+catheo-parser = { path = "crates/catheo-parser", version = "0.5.0" }
+catheo-macros = { path = "crates/catheo-macros", version = "0.5.0" }
+catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.5.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
