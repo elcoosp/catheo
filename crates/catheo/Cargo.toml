@@ -20,6 +20,13 @@ trybuild.workspace = true
 catheo-counting-alloc.workspace = true
 catheo-parser.workspace = true
 quote.workspace = true
+# The observable consumer seam (examples/instrumented_pipeline.rs):
+# `tracing` spans around the pipeline run and `miette` help text on the
+# error path. Dev-only — no shipped artifact links either crate.
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+miette = { version = "7.6.0", features = ["fancy"] }
+thiserror = "2.0.21"
 
 [lints]
 workspace = true
