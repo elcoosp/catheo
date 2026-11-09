@@ -107,7 +107,7 @@ Concrete implementations live in the same module and are `#[inline(always)]`.
 
 ### 2.3 Layer 2 — Monomorphized Execution Kernels
 
-Each trait method is a kernel. Kernels are generic over `(T, U, F)` and monomorphize per call site. To bound binary size, the macro generates a **unified non-generic state wrapper** for pipelines that exceed a complexity threshold (see §6.3), rather than emitting a fresh kernel copy per stage.
+Each trait method is a kernel. Kernels are generic over `(T, U, F)` and monomorphize per call site. To bound compile-time expansion, a pipeline that breaches the §6.3 token budget falls back to the sequential lowering (`pipeline_unfused!`'s shape) — never to a wider generic surface.
 
 ### 2.4 Layer 1.5 — the Strict `Monad` Unification (v0.5)
 
@@ -346,11 +346,11 @@ The split-trait design avoids the strict-`Monad` **supertrait** on stable. Since
 
 ### 5.2 Monomorphization Explosion
 
-Zero-sized witnesses are runtime-free but compile-time expensive: each `(witness, element type)` pair instantiates every kernel. Mitigations:
+Zero-sized witnesses are runtime-free but compile-time expensive: each `(witness, element type)` pair instantiates every kernel. The shipped mitigations:
 
-- **Unified non-generic state wrapper** for complex pipelines: the macro emits a single `struct __PipelineState` with a non-generic iteration protocol, so the inner loop is monomorphized once per pipeline, not once per stage.
-- **`Copy`-element fast path / generic fallback**: identical to the subtrait-layering pattern. Fast paths for `Copy` elements; boxed generic interpreter for the rest. Documented; not a silent cliff.
-- **Per-pipeline expansion budget**: if a single `pipeline!` would emit more than ~200 lines (measured via `-Zmacro-stats`), the macro falls back to the unified wrapper.
+- **Shallow traits, linear normalization (§2.2)**: every kernel signature projects `Self::Type<T>` exactly one level, so each monomorphization normalizes linearly — the shape-generic wall is what the split layer exists to route around.
+- **Pointwise witnesses keep the kernel shape (§6.1 M4)**: on `OptionWitness`/`ResultWitness<E>` there is no container to deforest, so the fused lowering stays at one monomorphic kernel per stage instead of layering adapters over a zero-or-one-element iterator — measured at parity, not assumed.
+- **Per-pipeline expansion budget**: if a single `pipeline!` would emit more than the §6.3 token budget, the macro falls back to the sequential lowering — the M0 shape, semantically identical (§6.2), and never larger than the user's own closure bodies (`codegen.rs`).
 
 ### 5.3 Proc-Macro Compile Cost
 
@@ -359,7 +359,7 @@ Zero-sized witnesses are runtime-free but compile-time expensive: each `(witness
 - Parse closures as raw `TokenStream`, not `syn::Expr`. The parser only validates the pipeline grammar; closure bodies are opaque.
 - Custom keywords avoid the `Ident`-to-`String` comparison path.
 - The deforestation pass is `O(N)` in stage count, not `O(N²)` or worse.
-- `-Zmacro-stats` is run on every CI build from the first commit. If expansion time or code volume exceeds budget, the PR is rejected.
+- `-Zmacro-stats` runs on every CI build as the *advisory* nightly job (nightly drift must not block unrelated work): its artifact is the evidence trail the §6.3 budget is audited against, not a merge gate.
 
 ### 5.4 The LLVM Boundary
 
@@ -396,21 +396,15 @@ Additional benchmarks:
 - Valid pipelines compile.
 - Malformed pipelines (missing witness, mismatched closure arity, unsupported combinator) produce spanned errors pointing to the offending token.
 - Fusion rules preserve semantics: property-based tests over `Vec`, `Option`, `Result` witnesses comparing fused and unfused execution on randomized inputs.
-- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`).
+- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`, `examples/escape_hatches.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`).
 
 ### 6.3 Expansion Budget
 
 Each `pipeline!` expansion is measured for:
-- Generated token count.
-- Generated line count (post-formatting).
-- Expansion wall time.
+- Generated token count — the enforced budget: **2,000 tokens** (`codegen.rs`'s `EXPANSION_TOKEN_BUDGET`, the documented 10-tokens-per-line conversion of the original ≤ 200-line budget; printed token streams do not preserve line breaks).
+- Generated line count and expansion wall time — advisory, recorded by the nightly `-Zmacro-stats` CI artifact.
 
-Budgets (initial, tunable):
-- ≤ 200 lines per pipeline.
-- ≤ 5 ms expansion per pipeline (excluding the macro crate's own compilation).
-- No single kernel instantiated more than once per pipeline.
-
-Pipelines exceeding budget fall back to the unified state wrapper, with a `#[deprecated]`-style warning emitted via `proc_macro::Diagnostic` if the threshold is breached in a user build.
+Pipelines exceeding the token budget fall back to the sequential lowering — byte-for-byte `pipeline_unfused!`'s shape, semantically identical (§6.2), never wider than the user's own closure bodies. No warning is emitted: the fused output can only ever be smaller than the sequential one, so the fallback is silent by design and the `-Zmacro-stats` artifact is the evidence trail.
 
 ---
 
