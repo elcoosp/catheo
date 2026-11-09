@@ -9,8 +9,11 @@
 //!
 //! - the published README carries the complete §7 limitation set under the
 //!   limitations heading (§7: "Known Limitations (Published in README)");
-//! - the workspace version is the current public release version
-//!   (`0.4.0`);
+//! - the workspace version is the public release version, verified by
+//!   *derivation* instead of a pinned literal: the facade crate must
+//!   inherit `[workspace.package]` verbatim and the version must be bare
+//!   semver — the tag the release workflow cuts (`v*.*.*`) is checked
+//!   against the manifest by the release driver, so a bump stays one edit;
 //! - the changelog documents the release history;
 //! - the README status table records the milestone history.
 
@@ -63,15 +66,39 @@ fn readme_publishes_every_section_7_limitation_under_the_limitations_heading() {
 
 #[test]
 fn workspace_version_is_the_public_release_version() {
+    // The facade crate declares `version.workspace = true`, so
+    // `CARGO_PKG_VERSION` — resolved from this test binary's own package —
+    // is the version the release driver publishes and tags. Deriving the
+    // expectation keeps the contract green across bumps: a stray
+    // `[package]` override in `crates/catheo` (the split-version failure
+    // mode) or a malformed manifest version fails here instead of at
+    // publish time.
     let manifest = read("Cargo.toml");
-    let version = manifest
+    let declared = manifest
         .lines()
         .find_map(|line| line.trim().strip_prefix("version = "))
+        .map(|value| value.trim().trim_matches('"'))
         .expect("the workspace manifest declares a version");
     assert_eq!(
-        version, "\"0.4.1\"",
-        "the current release is v0.4.0 (join shipped); bump the workspace version"
+        env!("CARGO_PKG_VERSION"),
+        declared,
+        "the facade crate must inherit the `[workspace.package]` version \
+         verbatim; a `[package]` override would publish a split version"
     );
+    let parts: Vec<&str> = declared.split('.').collect();
+    assert_eq!(
+        parts.len(),
+        3,
+        "the published version must be bare `major.minor.patch` \
+         semver, found `{declared}`"
+    );
+    for part in &parts {
+        assert!(
+            !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()),
+            "the published version must be bare numeric \
+             `major.minor.patch` semver, found `{declared}`"
+        );
+    }
 }
 
 #[test]
