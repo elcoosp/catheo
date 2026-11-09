@@ -13,7 +13,7 @@
   <p>
     <a href="https://github.com/elcoosp/catheo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elcoosp/catheo/ci.yml?style=flat-square" alt="CI"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/MSRV-1.99%2B-informational?style=flat-square" alt="MSRV 1.99+"/></a>
-    <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/version-0.4.0-informational?style=flat-square" alt="version 0.4.0"/></a>
+    <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/version-0.4.1-informational?style=flat-square" alt="version 0.4.0"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/clippy-pedantic%20deny-informational?style=flat-square" alt="clippy pedantic deny"/></a>
     <a href="https://github.com/elcoosp/catheo/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-informational?style=flat-square" alt="MIT license"/></a>
   </p>
