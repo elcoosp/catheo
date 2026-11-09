@@ -3,14 +3,17 @@
 //! A categorical pipeline library whose proc macro compiles functor/monad
 //! composition down to flat, fused imperative loops (see
 //! `docs/ARCHITECTURE.md`). This crate is the user-facing facade: it
-//! re-exports the [`pipeline!`] macro and the runtime layer (witnesses and
-//! split-trait kernels) that the macro's generated code calls into. The
-//! runnable consumer demos live in `crates/catheo/examples/`: `quickstart`
-//! (the README snippet), `fallible_pipeline` (the §4.3 traversal boundary),
-//! `monadic_surface` (the monadic surface — `join` and `fold_map`), and
-//! `instrumented_pipeline` (the observable seam — `tracing` spans
-//! around the run, `miette` help text on the error path; dev-only
-//! dependencies that no shipped artifact links).
+//! re-exports the [`pipeline!`] macro, the runtime layer (witnesses,
+//! split-trait kernels, and the v0.5 strict [`Monad`] unification that
+//! delegates to those kernels) that the macro's generated code calls
+//! into. The runnable consumer demos live in `crates/catheo/examples/`:
+//! `quickstart` (the README snippet), `fallible_pipeline` (the §4.3
+//! traversal boundary), `monadic_surface` (the monadic surface — `join`
+//! and `fold_map`), `strict_monad` (the §4.4 one-trait surface — one
+//! `Monad` bound across every witness), and `instrumented_pipeline`
+//! (the observable seam — `tracing` spans around the run, `miette` help
+//! text on the error path; dev-only dependencies that no shipped
+//! artifact links).
 //!
 //! ```
 //! use catheo::{pipeline, VecWitness};
@@ -27,13 +30,15 @@
 
 // The generated code refers to the runtime through the absolute path
 // `::catheo::…`; this alias makes that work inside this crate's own unit
-// tests and doctests. Unused at the top level: the expectation documents
-// exactly that and errors if the lint ever stops firing.
-#[expect(unused_extern_crates)]
+// tests and doctests. Unused at the top level by construction — the
+// `unused_extern_crates` allowance lives in `[workspace.lints.rust]` with
+// its rationale (and the `tests/v05_gates.rs` gate that keeps this the
+// only declared `extern crate` in the tree).
 extern crate self as catheo;
 
 pub mod categorical;
 pub mod hkt;
+pub mod monad;
 pub mod witness;
 
 pub use categorical::{
@@ -43,4 +48,5 @@ pub use categorical::{
 };
 pub use catheo_macros::{pipeline, pipeline_unfused};
 pub use hkt::HKT;
+pub use monad::Monad;
 pub use witness::{OptionWitness, ResultWitness, VecWitness};
