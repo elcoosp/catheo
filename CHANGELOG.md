@@ -5,6 +5,62 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.5.0] - 2026-11-10
+
+### 🚀 Features
+
+- *(runtime)* The §2.4/§4.4 strict `Monad` layer — one trait carrying `pure` + `bind`, with provided `join` (`bind(id)`) and derived `fmap` (`bind ∘ pure`), implemented per witness by delegating to the split kernels, the single lowering
+
+### 🧪 Testing
+
+- *(v0.5)* The strict-layer gates — monad laws per witness over the xorshift sweep, the derived/provided kernels pinned against the split layer (`fmap == run_map`, `join == run_join == bind(id)`), three-way value agreement, the allocation profile (strict == split-kernel exactly; the pointwise strict chain == the idiomatic chain), and the extern-crate migration contract
+- *(examples)* Pin the strict-monad consumer gate
+- *(release)* Move the publication contract to v0.5
+
+### 📈 Benchmarks
+
+- *(monad)* The §6.1 v0.5 pointwise three-way suite — `Option`/`Result` warm and cold universes; C ≈ B within noise on every universe (the bound erases under monomorphization)
+
+### 📚 Documentation
+
+- *(architecture)* The §2.4/§4.4 strict `Monad` layer, the §6.1 counting-alloc record and the v0.5 verdict, the observer module pointer, the delivered roadmap row
+- *(readme)* The v0.5 milestone row and the one-trait feature bullet
+- *(rustdoc)* The facade points at the strict-monad demo and the `Monad` re-export
+- *(changelog)* Record the 0.4.2 entry
+
+### 🚜 Refactor
+
+- *(macros)* Collapse the parse/emit pipeline to one `and_then` (drop the identity error arm)
+- *(lints)* Migrate the facade's `#[expect(unused_extern_crates)]` to `[workspace.lints.rust]` with its rationale, gated by the one-`extern crate` contract
+
+### ⚙️ Continuous Integration
+
+- Smoke the monad bench as the eighth target
+
+## [0.4.2] - 2026-11-09
+
+### 📚 Documentation
+
+- *(examples)* The monadic consumer demo (join, fold_map)
+- *(architecture)* The pure row names the runtime kernel
+- *(readme)* The 40-case truth, the de-drifted badge and status
+- *(rustdoc)* Point the facade at the monadic demo
+- *(changelog)* Record the 0.4.1 entry
+
+### 🧪 Testing
+
+- *(examples)* Pin the monadic-surface consumer gate
+- *(release)* Derive the publication contract from the manifest
+
+### 🚜 Refactor
+
+- *(parser)* Drop the unused KeywordSpan trait
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Bump the workspace to v0.4.2
+- Gitignore
+
 ## [0.4.1] - 2026-11-09
 
 ### 📚 Documentation
