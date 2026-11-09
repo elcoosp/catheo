@@ -5,6 +5,35 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.4.1] - 2026-11-09
+
+### 📚 Documentation
+
+- *(examples)* The quickstart consumer demo
+- *(examples)* The fallible traversal consumer demo
+- *(examples)* The instrumented consumer seam
+- *(readme)* The examples section and the UI-suite truth sweep
+- *(architecture)* The 3.1 sketch and the v0.4 keyword set
+- *(rustdoc)* Point the crate facade at the examples
+
+### 🧪 Testing
+
+- *(examples)* The consumer-surface deterministic gate
+- *(release)* Move the publication contract to v0.4.1
+
+### 🔨 Build
+
+- *(deps)* The tracing and miette dev-only seam
+
+### ⚙️ Continuous Integration
+
+- The bench-smoke comment counts the seven targets
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Bump the workspace to 0.4.1
+- Gitignore
+
 ## [0.4.0] - 2026-11-08
 
 ### 🚀 Features
