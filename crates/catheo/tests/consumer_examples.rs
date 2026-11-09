@@ -4,12 +4,15 @@
 //!
 //! A proc-macro library sells a *demonstration* as much as an API: the
 //! crate-level rustdoc points consumers at runnable examples, so this gate
-//! keeps the pointer honest. Three demos are pinned:
+//! keeps the pointer honest. Four demos are pinned:
 //!
 //! - `quickstart.rs` — the README quickstart, runnable;
 //! - `fallible_pipeline.rs` — the traversal boundary over a `Result` effect;
 //! - `instrumented_pipeline.rs` — the observable consumer seam: `tracing`
-//!   spans around the run and `miette` help text on the error path.
+//!   spans around the run and `miette` help text on the error path;
+//! - `monadic_surface.rs` — the monadic multiplication and the monoid
+//!   eliminator: `join` (fused and pointwise) and `fold_map` over real
+//!   `Monoid`s, the newest combinator surface with the smallest doc cost.
 //!
 //! plus the README and the crate rustdoc must both link the directory.
 
@@ -91,6 +94,35 @@ fn the_instrumented_demo_carries_the_observable_seam() {
     );
     assert!(
         instrumented.contains("--example instrumented_pipeline"),
+        "the demo documents its own run line"
+    );
+}
+
+#[test]
+fn the_monadic_demo_runs_join_and_fold_map_on_the_surface() {
+    let monadic = example("monadic_surface.rs");
+    assert!(
+        monadic.contains("join"),
+        "the monadic demo stages the §4.3 monadic multiplication"
+    );
+    assert!(
+        monadic.contains("fold_map:"),
+        "the monadic demo eliminates through the §4.3 v0.2 monoid eliminator"
+    );
+    assert!(
+        monadic.contains("OptionWitness") && monadic.contains("ResultWitness"),
+        "the monadic demo covers the pointwise witnesses, not only `Vec`"
+    );
+    assert!(
+        monadic.contains("tracing::"),
+        "the new consumer seam carries `tracing` spans like the instrumented demo"
+    );
+    assert!(
+        monadic.contains("help"),
+        "the fallible surface carries miette help text, not a bare message"
+    );
+    assert!(
+        monadic.contains("--example monadic_surface"),
         "the demo documents its own run line"
     );
 }
