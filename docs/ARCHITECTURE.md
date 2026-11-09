@@ -252,7 +252,7 @@ let result = pipeline! {
 | `bind` | v0.1 | Monadic sequence; the hard case |
 | `filter` | v0.1 | Absolute barrier; no fusion |
 | `fold` | v0.1 | Universal eliminator; absorbs pure prefixes |
-| `pure` / `return` | v0.1 | Compile-time identity |
+| `pure` | v0.1 | Runtime kernel only — `CategoricalPointed::run_pure` (§2.2, the pointed layer); never a pipeline stage keyword |
 | `join` | v0.4 | Bare-keyword stage; desugars to `bind(id)` (§4.3.2) |
 | Kleisli `>=>` | v0.2 | Desugars to nested bind; fusion pass extended |
 | `traverse` | v0.3 | Traversable eliminator; two-sided boundary discipline (§4.3.1) |
