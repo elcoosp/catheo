@@ -179,16 +179,6 @@ pub struct Closure {
 }
 
 impl Closure {
-    /// The single stage-closure parameter; stages take exactly one.
-    ///
-    /// # Panics
-    /// If called on a callable-form [`Closure`] (empty params); check
-    /// [`Closure::is_callable`] first.
-    #[must_use]
-    pub fn stage_param(&self) -> &Param {
-        &self.params[0]
-    }
-
     /// `true` when this is a bare callable expression rather than a closure.
     #[must_use]
     pub fn is_callable(&self) -> bool {
