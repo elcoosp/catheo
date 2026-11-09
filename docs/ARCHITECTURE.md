@@ -2,7 +2,7 @@
 
 ## Architecture Specification — v0.1
 
-**Status:** Design-complete for the v0.1 prototype; maintained through the v0.4 release (§4.3.1 traverse, §4.3.2 join). Benchmark-gated before any public API commitment.
+**Status:** Design-complete for the v0.1 prototype; maintained through the v0.5 release (§4.3.1 traverse, §4.3.2 join, §4.4 the strict `Monad` layer). Benchmark-gated before any public API commitment.
 **Scope:** A proc-macro-backed categorical pipeline library with a syntax-directed compilation engine and an imperative execution core. Zero-cost on the fast path; explicit fallback otherwise.
 
 ---
@@ -41,6 +41,7 @@ This library occupies the gap: **a functional, category-theoretic API that compi
 │  ┌───────────────────────────────────────────────────┐  │
 │  │ Layer 0: HKT witness pattern (ZSTs, GATs)          │  │
 │  │ Layer 1: Split-Trait Dual-Witness (stable GAT)     │  │
+│  │ Layer 1.5: strict Monad unification (v0.5, §2.4)   │  │
 │  │ Layer 2: Monomorphized execution kernels           │  │
 │  └───────────────────────────────────────────────────┘  │
 └──────────────────────┬──────────────────────────────────┘
@@ -108,6 +109,28 @@ Concrete implementations live in the same module and are `#[inline(always)]`.
 
 Each trait method is a kernel. Kernels are generic over `(T, U, F)` and monomorphize per call site. To bound binary size, the macro generates a **unified non-generic state wrapper** for pipelines that exceed a complexity threshold (see §6.3), rather than emitting a fresh kernel copy per stage.
 
+### 2.4 Layer 1.5 — the Strict `Monad` Unification (v0.5)
+
+The consumer-facing unification of the split layer: `pure` and `bind` in **one** trait, shipped additively in v0.5 (the section number follows Layer 2 to keep the v0.1–v0.4 §-references stable). Every witness implements the trait by **delegating** to the §2.2 kernels — the split layer remains the single lowering, no kernel body is duplicated, and the `pipeline!` grammar plus emitted code are untouched (the §6.1 gates re-apply verbatim).
+
+```rust
+pub trait Monad: HKT {
+    fn pure<T>(value: T) -> Self::Type<T>;
+    fn bind<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
+    where F: Fn(T) -> Self::Type<U>;
+
+    // provided: join(m) is bind(m, identity) (§4.3.2)
+    fn join<T>(container: Self::Type<Self::Type<T>>) -> Self::Type<T> { /* bind(id) */ }
+    // provided: the functor operation, derived
+    fn fmap<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
+    where F: Fn(T) -> U { /* bind(m, |x| pure(f(x))) */ }
+}
+```
+
+Why additive and not the §5.1 supertrait migration: folding the split traits into a `Monad` **supertrait with default bodies over a generic `Self`** still fails on stable Rust with `E0276`/`E0277` (the shape-generic wall). A fresh per-witness trait with required kernels needs no such normalization — single-level `Self::Type<T>` projections are exactly the shape `rustc` already accepts (`kleisli`, `run_join`). The deliverable is therefore: one trait to bound on at the consumer seam, laws-tested per witness (`tests/v05_gates.rs`), `fmap == run_map` and `join == run_join == bind(id)` pinned against the split kernels, and the allocation profile pinning strict == split-kernel exactly — the abstraction is free. Full surface migration stays tracked against `-Znext-solver` stabilization (§7 limitation 3, §8 roadmap).
+
+The runnable demonstration is `crates/catheo/examples/strict_monad.rs` (the §6.1 observable seam posture: `tracing` spans around the program, `miette` help text on the error path, both dev-only). The traversal boundary stays the §4.3.1 split-kernel discipline — `traverse` is not part of the `Monad` layer, and the example crosses it explicitly.
+
 ---
 
 ## 3. The Macro Compiler
@@ -158,6 +181,8 @@ Barrier decisions are made **at parse time**, not in a separate pass. Each `Stag
 
 - `fusion_barrier` — `true` for `Filter` (absolute barrier) and for `Bind` whose closure is a structural observer.
 - `structural_observer` — a conservative lexical approximation: the closure's token text contains `.len`, `.is_empty`, `.iter`, `Some`, `None`, `Ok`, or `Err`.
+
+Both checks live in the `observer` module (`crates/catheo-parser/src/observer.rs`): `is_structural_observer` (the dot-method and constructor scan) and `is_lexically_pure` (the `&mut` scan feeding Rule 4's `is_pure`).
 
 This is a **syntax-level conservative approximation**, not semantic analysis. It may produce false positives (rejecting a fusion that would have been safe). False positives are acceptable; false negatives are not. The user can override with an explicit escape hatch (see §4.2).
 
@@ -296,13 +321,28 @@ The desugar is the `parse_kleisli` posture in miniature: one ordinary `StageKind
 
 Validation: `tests/v04_gates.rs` pins the emission shape, three-way value agreement, the allocation profile, and oracle agreement over every witness (deterministic, §6.1 style); `benches/join.rs` re-applies the §6.1 three-way protocol — over the map-prefix flatten shape (10k/100k/1M), the fused `flat_map` chain holds parity with B (C ≈ B within noise) and A, the two-materialization spelling, is ~27× slower. Multiple `join` stages are admitted (each flattens one level); the runtime half (`run_join`, `tests/runtime_pointed_join.rs`) shipped with the v0.1 kernels and is unchanged.
 
+#### 4.4 The Strict Monad Layer (v0.5)
+
+The consumer-facing one-trait surface (§2.4): `catheo::Monad` carries `pure` + `bind`, with `join` provided (`bind(id)`, §4.3.2) and `fmap` derived (`bind ∘ pure`). A consumer program bounds on a single `Monad` parameter and runs, monomorphized, across every witness — the generic body `fn checked_doubling<M: Monad>(program: M::Type<i32>) -> M::Type<i64>` instantiates for `VecWitness`, `OptionWitness`, and `ResultWitness<E>` without naming the split-trait pair.
+
+The runtime layer is the *eager* monad semantics, by design (§2.3): each `bind` collects its container and each `pure` allocates its single-element one. B-parity on the fused path remains the macro's compile-time job (`benches/abc.rs`); the pointwise witnesses, with no container to build, hold C == B at the runtime layer too. The allocation profile is pinned exactly: strict == split-kernel spelling (the bound is free), and the pointwise strict chain == the idiomatic one-pass chain.
+
+| Entry | Role |
+|---|---|
+| `Monad::pure` | the pointed kernel, unified (§4.3 `pure`) |
+| `Monad::bind` | the monadic kernel, unified — the required pair |
+| `Monad::join` | provided: `bind(id)` (§4.3.2) |
+| `Monad::fmap` | provided, derived: `bind(m, \|x\| pure(f(x)))` |
+
+Validation: `tests/v05_gates.rs` pins the monad laws per witness over the xorshift sweep, the derived/provided kernels against the split layer, three-way value agreement, and the allocation profile (deterministic, §6.1 style); `benches/monad.rs` re-applies the §6.1 three-way protocol over the pointwise universes — warm and cold, `Option` and `Result`: C ≈ B within noise on every universe (the bound erases under monomorphization). The runnable consumer demonstration, with the observable seam, is `examples/strict_monad.rs`.
+
 ---
 
 ## 5. Compiler Constraints and Mitigations
 
 ### 5.1 GAT Normalization (E0276/E0277)
 
-The split-trait design avoids strict `Monad` on stable. Migration path: when `-Znext-solver` stabilizes, `CategoricalMonad` is superseded by a strict `Monad` supertrait without breaking user code (the `run_bind` method signature is compatible). The dual-witness layer stays as documentation of the transitional period; it is not a permanent API commitment.
+The split-trait design avoids the strict-`Monad` **supertrait** on stable. Since v0.5 the consumer-facing unification is available additively (§2.4/§4.4): a fresh per-witness `Monad` trait with required `pure`/`bind` kernels needs no shape-generic normalization, so it compiles on stable — while the supertrait migration of the *macro surface* (split traits folded into a GAT hierarchy with default bodies over generic `Self`) still waits. Migration path: when `-Znext-solver` stabilizes, the split layer is superseded without breaking user code (the `run_bind` method signature is compatible with `Monad::bind`). The dual-witness layer stays as the single lowering and documentation of the transitional period; it is not a permanent API commitment.
 
 ### 5.2 Monomorphization Explosion
 
@@ -337,9 +377,13 @@ Three-way comparison over representative pipelines, on `Vec<i32>` and `Vec<Strin
 - **B. Idiomatic Rust iterator chains** — the baseline the macro must match.
 - **C. Macro-flattened output** — the target.
 
+Wall-clock is never the CI gate: the deterministic instruments are the allocation-counting gates of `crates/catheo-counting-alloc` (a thread-local counting allocator over `std::alloc::System`, dev-only — the crate is the repository's entire `unsafe` surface and no shipped artifact links it). `tests/v02_gates.rs`–`tests/v05_gates.rs` pin three-way value agreement, allocation profiles, and — where the macro is involved — fused-emission shape lockstep as plain `cargo test` gates, so a fused pipeline that silently regresses to materializing intermediates changes its count and fails the gate on shared runners without wall-clock flakiness.
+
 Success criterion for v0.1: **C ≥ B** on all pipelines, and **C > A** on at least the map-heavy and fold-heavy pipelines. If C < B on any pipeline, the deforestation rule responsible is re-examined before merge.
 
 **v0.3 record (traverse).** The §8 v0.3 gate re-applied this protocol over `benches/traverse.rs`: `Vec<i32>` sources, an `i32 -> Result<u64, GateError>` traversal, warm (every element passes) and cold (first element fails) universes, 10k/100k/1M. Warm parity holds at all three sizes — C within noise of B, A ≈ 3× slower. Cold, the timed region is a first-element short-circuit plus a buffer free, and absolute cross-run numbers drift heavily on shared hardware (B itself moved 73 → 138 ns across runs of the *same* binary), so only within-run comparisons were treated as evidence. Within one long-window run (10 s measurement, 100 samples, CI ≈ ±0.5%): 100k parity (C +0.4%), 1M with C 6% *faster*, and 10k with C +16 ns under non-overlapping CIs. Per the protocol, the rule responsible — prefix absorption into the traversal's iterator — was re-examined before merge: the kernel is verbatim B's elimination (`items.map(f).collect()`, §4.3.1), the cold path carries no extra container or pass, and the residual delta does not scale with *n* and inverts sign at 1M — the signature of per-binary code layout, not of a rewriting-rule defect. Delivered on that evidence.
+
+**v0.5 record (the strict Monad layer).** The §8 v0.5 gate re-applied the protocol over `benches/monad.rs` — the pointwise universes (`Option` warm/cold, `Result` warm/cold, per-call): C ≈ B within noise on every universe (all four A/B/C routines land in the same ~1.1 ns warm / ~2.0 ns cold band), and C ≈ A — the one-trait bound erases under monomorphization, leaving B's spelling. The eager `Vec` shape publishes its floor deterministically instead of by wall-clock: `tests/v05_gates.rs` pins strict == split-kernel allocation counts exactly (the abstraction adds nothing over the kernels), the pointwise strict chain == the idiomatic one-pass chain, and the C > B/C > A eager gap is asserted with its §2.3 rationale — the fused answer lives in the macro pass (§4.4).
 
 Additional benchmarks:
 
@@ -352,6 +396,7 @@ Additional benchmarks:
 - Valid pipelines compile.
 - Malformed pipelines (missing witness, mismatched closure arity, unsupported combinator) produce spanned errors pointing to the offending token.
 - Fusion rules preserve semantics: property-based tests over `Vec`, `Option`, `Result` witnesses comparing fused and unfused execution on randomized inputs.
+- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`).
 
 ### 6.3 Expansion Budget
 
@@ -373,7 +418,7 @@ Pipelines exceeding budget fall back to the unified state wrapper, with a `#[dep
 
 1. **Closure shape is constrained.** Fused closures are composed by application, not by substitution. A user closure that pattern-matches its argument destructures at the call boundary, not inside the fused body. Documented with examples.
 2. **Structural observers are detected lexically.** A `bind` closure containing `.iter` anywhere in its body is treated as an observer, even if the call is dead code. Users can force fusion with `bind!: force`.
-3. **No strict `Monad` on stable.** The dual-witness layer is a documented transitional architecture; migration is tracked against `-Znext-solver` stabilization.
+3. **No strict `Monad` on stable.** The macro surface keeps the dual-witness split-trait layer — folding the split traits into a GAT supertrait hierarchy over a generic `Self` still hits the `E0276`/`E0277` shape-generic wall; migration is tracked against `-Znext-solver` stabilization. The consumer-facing unification shipped additively in v0.5 (§2.4/§4.4): one `Monad` trait, delegating to the split kernels, laws- and allocation-gated.
 4. **`traverse` arrived in v0.3, and its shape is constrained.** The kernel collects into a pinned `Vec<U>` (the stable solver cannot normalize a shape-generic signature, §5.1), the effect must be a built-in pointwise witness, and a pipeline admits exactly one traversal boundary. The two-sided lowering discipline is documented in §4.3.1.
 5. **LLVM is not controlled.** The performance claims are empirically validated per-pipeline, not guaranteed universally.
 
@@ -392,7 +437,7 @@ Pipelines exceeding budget fall back to the unified state wrapper, with a `#[dep
 | **v0.2** | Kleisli, `fold_map`, escape hatches | Benchmark gates re-applied |
 | **v0.3** | `traverse` — two-sided boundary discipline, `CategoricalTraverse` kernel | §6.1 gates re-applied; cold re-examination recorded (§6.1) |
 | **v0.4** | `join` — the §4.3 monadic multiplication on the pipeline surface | §6.1 gates re-applied (deterministic forms in `tests/v04_gates.rs`) |
-| **v0.5+** | strict `Monad` migration | Deferred pending `-Znext-solver` |
+| **v0.5** | the strict `Monad` layer — the §2.4/§4.4 one-trait unification, additive | §6.1 gates re-applied (laws + allocation profile in `tests/v05_gates.rs`; pointwise verdict in `benches/monad.rs`); surface migration still tracked against `-Znext-solver` |
 
 **M3 is the decision gate.** If the macro-flattened output does not match idiomatic iterator chains on at least the map-heavy and fold-heavy pipelines, the architecture returns to design review. No public API is committed until M3 passes.
 
