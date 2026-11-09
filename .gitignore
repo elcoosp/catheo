@@ -17,3 +17,4 @@
 
 # v0.4 release driver (local tooling, like commit.sh: never committed)
 /ship.sh
+.github/pr-body.md
