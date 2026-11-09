@@ -4,7 +4,7 @@
 //!
 //! A proc-macro library sells a *demonstration* as much as an API: the
 //! crate-level rustdoc points consumers at runnable examples, so this gate
-//! keeps the pointer honest. Four demos are pinned:
+//! keeps the pointer honest. Six demos are pinned:
 //!
 //! - `quickstart.rs` — the README quickstart, runnable;
 //! - `fallible_pipeline.rs` — the traversal boundary over a `Result` effect;
@@ -16,7 +16,12 @@
 //! - `strict_monad.rs` — the §2.4/§4.4 one-trait surface: a program
 //!   composed over a single `Monad` bound (`pure` + `bind`, provided
 //!   `join` and derived `fmap`) run across every witness, with the house
-//!   observable seam around it.
+//!   observable seam around it;
+//! - `escape_hatches.rs` — the §4.2 escape hatches (`bind!: force`,
+//!   `bind!: materialize`), the `pipeline_unfused!` oracle that isolates
+//!   any mis-rewrite to the fusion pass, the witness-free source
+//!   ascription, and the Option bind chain, in the same observable
+//!   posture.
 //!
 //! plus the README and the crate rustdoc must both link the directory.
 
@@ -158,6 +163,45 @@ fn the_strict_monad_demo_carries_the_one_trait_surface() {
     );
     assert!(
         strict.contains("--example strict_monad"),
+        "the demo documents its own run line"
+    );
+}
+
+#[test]
+fn the_escape_hatch_demo_runs_the_hatches_and_the_oracle() {
+    let hatches = example("escape_hatches.rs");
+    assert!(
+        hatches.contains("bind!: force"),
+        "the demo forces fusion past a false-positive observer (§4.2)"
+    );
+    assert!(
+        hatches.contains("bind!: materialize"),
+        "the demo materializes an intermediate, the opposite direction (§4.2)"
+    );
+    assert!(
+        hatches.contains("pipeline_unfused!"),
+        "the demo pairs `pipeline!` with the §6.2 unfused oracle — expanding \
+         a suspect pipeline through both macros isolates any mis-rewrite \
+         to the fusion pass"
+    );
+    assert!(
+        hatches.contains("as Vec"),
+        "the demo derives the witness from a §4.2 source ascription"
+    );
+    assert!(
+        hatches.contains("OptionWitness"),
+        "the demo runs the Option bind-chain surface (and_then on Option)"
+    );
+    assert!(
+        hatches.contains("tracing::"),
+        "the consumer seam carries `tracing` spans like the instrumented demo"
+    );
+    assert!(
+        hatches.contains("help"),
+        "the fallible path carries miette help text, not a bare message"
+    );
+    assert!(
+        hatches.contains("--example escape_hatches"),
         "the demo documents its own run line"
     );
 }
