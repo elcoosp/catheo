@@ -1109,18 +1109,6 @@ impl Parse for Closure {
     }
 }
 
-/// Span of a stage keyword for `quote_spanned` diagnostics (§3.4).
-pub trait KeywordSpan {
-    /// The span this node contributes to generated diagnostics.
-    fn keyword_span(&self) -> Span;
-}
-
-impl KeywordSpan for Stage {
-    fn keyword_span(&self) -> Span {
-        self.span
-    }
-}
-
 impl ToTokens for Witness {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.path.to_tokens(tokens);
