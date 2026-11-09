@@ -69,7 +69,7 @@ fn workspace_version_is_the_public_release_version() {
         .find_map(|line| line.trim().strip_prefix("version = "))
         .expect("the workspace manifest declares a version");
     assert_eq!(
-        version, "\"0.4.0\"",
+        version, "\"0.4.1\"",
         "the current release is v0.4.0 (join shipped); bump the workspace version"
     );
 }
