@@ -12,7 +12,11 @@
 //!   spans around the run and `miette` help text on the error path;
 //! - `monadic_surface.rs` — the monadic multiplication and the monoid
 //!   eliminator: `join` (fused and pointwise) and `fold_map` over real
-//!   `Monoid`s, the newest combinator surface with the smallest doc cost.
+//!   `Monoid`s, the newest combinator surface with the smallest doc cost;
+//! - `strict_monad.rs` — the §2.4/§4.4 one-trait surface: a program
+//!   composed over a single `Monad` bound (`pure` + `bind`, provided
+//!   `join` and derived `fmap`) run across every witness, with the house
+//!   observable seam around it.
 //!
 //! plus the README and the crate rustdoc must both link the directory.
 
@@ -123,6 +127,37 @@ fn the_monadic_demo_runs_join_and_fold_map_on_the_surface() {
     );
     assert!(
         monadic.contains("--example monadic_surface"),
+        "the demo documents its own run line"
+    );
+}
+
+#[test]
+fn the_strict_monad_demo_carries_the_one_trait_surface() {
+    let strict = example("strict_monad.rs");
+    assert!(
+        strict.contains("Monad"),
+        "the strict-monad demo bounds on the §4.4 one-trait surface"
+    );
+    assert!(
+        strict.contains("M::pure") && strict.contains("M::bind"),
+        "the strict-monad demo drives `pure` and `bind` through the unified trait"
+    );
+    assert!(
+        strict.contains("VecWitness")
+            && strict.contains("OptionWitness")
+            && strict.contains("ResultWitness"),
+        "the one-trait surface runs across every witness, not only `Vec`"
+    );
+    assert!(
+        strict.contains("tracing::"),
+        "the strict-monad demo spans its sections like the instrumented demo"
+    );
+    assert!(
+        strict.contains("help"),
+        "the fallible path carries miette help text, not a bare message"
+    );
+    assert!(
+        strict.contains("--example strict_monad"),
         "the demo documents its own run line"
     );
 }
