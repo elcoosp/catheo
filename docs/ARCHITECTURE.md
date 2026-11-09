@@ -2,7 +2,7 @@
 
 ## Architecture Specification — v0.1
 
-**Status:** Design-complete for the v0.1 prototype. Benchmark-gated before any public API commitment.
+**Status:** Design-complete for the v0.1 prototype; maintained through the v0.4 release (§4.3.1 traverse, §4.3.2 join). Benchmark-gated before any public API commitment.
 **Scope:** A proc-macro-backed categorical pipeline library with a syntax-directed compilation engine and an imperative execution core. Zero-cost on the fast path; explicit fallback otherwise.
 
 ---
@@ -118,30 +118,39 @@ The parser consumes a `TokenStream` and produces a `Pipeline` AST. The AST recor
 
 ```rust
 pub struct Pipeline {
-    pub witness: syn::Ident,
-    pub source: TokenStream,
+    pub witness: Witness,           // path + span (§4.1 head anchor)
+    pub source: Source,             // raw tokens + optional `as` ascription
     pub stages: Vec<Stage>,
     pub terminal: Terminal,
 }
 
 pub struct Stage {
     pub kind: StageKind,
-    pub closure: TokenStream,
+    pub closure: Closure,           // validated header + opaque body tokens
     pub span: Span,
     pub fusion_barrier: bool,       // blocks upstream fusion
     pub structural_observer: bool,  // Bind inspects container shape
+    pub modifier: StageModifier,    // §4.2: None | Force | Materialize
+    pub effect: Option<syn::Path>,  // §4.3 v0.3: the traverse effect witness
 }
 
-pub enum StageKind { Map, Bind, Filter }
+pub enum StageKind { Map, Bind, Filter, Traverse }
 
 pub enum Terminal {
-    Fold { init: TokenStream, closure: TokenStream, span: Span, is_pure: bool },
+    Fold { init: TokenStream, closure: Box<Closure>, span: Span, is_pure: bool },
     Collect(Span),
+    FoldMap { closure: Box<Closure>, span: Span },  // §4.3 v0.2
     None,
 }
 ```
 
-Custom keywords (`witness`, `source`, `map`, `bind`, `filter`, `fold`) are declared via `syn::custom_keyword!` to avoid string comparison in the hot parse path.
+The sketch tracks the v0.4 grammar; the authoritative definitions live in
+`crates/catheo-parser/src/ast.rs`.
+
+Custom keywords (`witness`, `source`, `map`, `bind`, `filter`, `join`,
+`kleisli`, `traverse`, `fold`, `fold_map`, `collect`, plus the §4.2 hatch
+markers `force`/`materialize`) are declared via `syn::custom_keyword!` to
+avoid string comparison in the hot parse path.
 
 ### 3.2 Barrier Annotation
 
