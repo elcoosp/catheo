@@ -53,7 +53,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.3
       # Shortened measurement window: this job gates compile-and-run health
-      # of all six bench targets. The deterministic gates (§6.1 decision
+      # of all seven bench targets. The deterministic gates (§6.1 decision
       # gates, §6.3 expansion budget, kernel linearity) run under the plain
       # `cargo test --workspace` job (they are integration tests in
       # `tests/`); the §6.1 verdict itself is read from criterion output
