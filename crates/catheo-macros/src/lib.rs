@@ -41,10 +41,12 @@ pub fn pipeline_unfused(input: TokenStream) -> TokenStream {
 
 fn expand_with(input: TokenStream, lowering: catheo_parser::Lowering) -> TokenStream {
     let tokens: proc_macro2::TokenStream = input.into();
-    let expanded = match catheo_parser::parse_pipeline(tokens) {
-        Ok(parsed) => catheo_parser::emit_with_lowering(&parsed, lowering),
-        Err(err) => Err(err),
-    };
+    // Parse, then emit — the parse error's spanned `compile_error!` is the
+    // error path for both stages (the parser validates everything the
+    // emitter relies on), so the pipeline is one `and_then`, not a
+    // match with an identity error arm.
+    let expanded = catheo_parser::parse_pipeline(tokens)
+        .and_then(|parsed| catheo_parser::emit_with_lowering(&parsed, lowering));
     match expanded {
         Ok(emitted) => emitted.into(),
         Err(err) => err.to_compile_error().into(),
