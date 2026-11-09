@@ -32,7 +32,7 @@ fn minimal_map_fold_pipeline() {
     assert_eq!(p.stages[0].kind, StageKind::Map);
     assert!(!p.stages[0].fusion_barrier);
     assert!(!p.stages[0].structural_observer);
-    assert_eq!(p.stages[0].closure.stage_param().ident, "x");
+    assert_eq!(p.stages[0].closure.params[0].ident, "x");
     match p.terminal {
         Terminal::Fold {
             is_pure, closure, ..
@@ -148,8 +148,8 @@ fn closure_type_ascription_is_accepted() {
         source: xs,
         map: |x: i32| x * 2,
     });
-    assert!(p.stages[0].closure.stage_param().ty.is_some());
-    assert_eq!(p.stages[0].closure.stage_param().ident, "x");
+    assert!(p.stages[0].closure.params[0].ty.is_some());
+    assert_eq!(p.stages[0].closure.params[0].ident, "x");
 }
 
 #[test]
@@ -196,6 +196,34 @@ fn turbofish_path_inside_closure_body_is_not_an_entry_boundary() {
         "the `collect::<…>()` turbofish belongs to the body, got: {body}"
     );
     assert!(matches!(p.terminal, Terminal::Collect(_)));
+}
+
+/// The capture stepper tracks `::<` angle depth so generic-list commas do
+/// not split the capture; an unterminated `<` previously ended the capture
+/// silently, and the pipeline surfaced a distant "expected `,`" riddle far
+/// from the opening angle. §6.2 (a rejection is never a riddle): the error
+/// names the unterminated generic list and anchors at the `::<` that opened
+/// it.
+#[test]
+fn unterminated_turbofish_reports_the_opening_angle() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        bind: |x| f::<A, B,
+        collect,
+    });
+    assert!(
+        err.contains("unterminated"),
+        "the rejection must name the unterminated generic list: {err}"
+    );
+    assert!(
+        err.contains("f :: <"),
+        "the error anchors at the `::<` that opened the list: {err}"
+    );
+    assert!(
+        !err.contains("expected `,`"),
+        "the capture boundary must not surface as a separator riddle: {err}"
+    );
 }
 
 #[test]
@@ -883,7 +911,7 @@ fn traverse_entry_parses_effect_witness_and_closure() {
         .as_ref()
         .expect("the traverse stage carries its effect witness");
     assert_eq!(effect.to_token_stream().to_string(), "OptionWitness");
-    assert_eq!(traverse.closure.stage_param().ident, "x");
+    assert_eq!(traverse.closure.params[0].ident, "x");
     // The traversal is a boundary in both directions: nothing fuses into
     // the stage that follows it, and the suffix lowers inside the guard.
     assert!(traverse.fusion_barrier);

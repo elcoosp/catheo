@@ -42,8 +42,9 @@ mod kw {
     syn::custom_keyword!(materialize);
 }
 
-// Aliases: syn's custom_keyword! declares the type under its own name; the
-// suffixed aliases keep call sites readable without shadowing local names.
+// The keywords: `syn::custom_keyword!` declares each entry type under its
+// own name — no aliases, nothing to shadow. Dispatch peeks them by type
+// (`input.peek(kw::map)`), so the hot parse path never builds a `String`.
 
 // Entry keywords that terminate an opaque raw-token capture (closure body,
 // source expression): `witness`, `source`, `map`, `bind`, `filter`, `fold`,
@@ -835,7 +836,7 @@ fn capture_raw(input: ParseStream<'_>) -> syn::Result<TokenStream> {
 /// Termination conditions, all at the token-tree top level:
 ///
 /// - a `,` — the entry separator;
-/// - a [`BOUNDARY_KEYWORDS`] ident followed by `:` (not a `::` path joint)
+/// - an [`is_boundary_keyword`] ident followed by `:` (not a `::` path joint)
 ///   or by `!` (a §4.2 escape hatch) — the next entry starting unseparated;
 /// - with `stop_at_as`, an `as` — the §4.2 ascription split point, consumed
 ///   so the `syn::Type` parse starts at the type.
@@ -847,10 +848,18 @@ fn capture_raw(input: ParseStream<'_>) -> syn::Result<TokenStream> {
 /// generic argument list, never a comparison) and exits at the matching
 /// `>`, consuming `->` arrows of fn-typed arguments as pairs so they are
 /// not mistaken for closers. Outside turbofish position `<`/`>` are left
-/// untouched — comparison operators never swallow a separator.
+/// untouched — comparison operators never swallow a separator. A stream
+/// that ends with the angle list still open is rejected spanned at the
+/// opening `::<` (§6.2 — a rejection is never a riddle): the older silent
+/// exit surfaced a distant "expected `,`" far from the real defect.
 fn capture_raw_impl(input: ParseStream<'_>, stop_at_as: bool) -> syn::Result<(TokenStream, bool)> {
     let mut captured = TokenStream::new();
     let mut stopped_at_as = false;
+    // The most recent ident captured at the top level — the callee named in
+    // the unterminated-turbofish diagnostic. Cheap: an `Ident` clone shares
+    // its backing string; the `String` spelling is built only on the error
+    // path.
+    let mut last_ident = None;
     input.step(|cursor| {
         let mut rest = *cursor;
         'capture: while let Some((tt, next)) = rest.token_tree() {
@@ -871,6 +880,11 @@ fn capture_raw_impl(input: ParseStream<'_>, stop_at_as: bool) -> syn::Result<(To
                     && let Some((open, after_open)) = after.token_tree()
                     && matches!(open, TokenTree::Punct(ref p) if p.as_char() == '<')
                 {
+                    let open_span = open.span();
+                    // The ident immediately before `::<` names the callee in
+                    // the unterminated-list diagnostic; snapshot it now —
+                    // idents *inside* the list belong to the arguments.
+                    let list_opener = last_ident.clone();
                     captured.extend([tt.clone(), second, open.clone()]);
                     rest = after_open;
                     let mut depth = 1_usize;
@@ -898,15 +912,36 @@ fn capture_raw_impl(input: ParseStream<'_>, stop_at_as: bool) -> syn::Result<(To
                                 _ => {}
                             }
                         }
+                        if let TokenTree::Ident(ref ident) = tf {
+                            last_ident = Some(ident.clone());
+                        }
                         captured.extend(core::iter::once(tf));
                         rest = tf_next;
                         if depth == 0 {
                             break;
                         }
                     }
+                    if depth > 0 {
+                        // The stream ended with the angle list still open.
+                        // Report at the opening `::<`, naming the callee —
+                        // the §6.2 posture: a rejection is never a riddle.
+                        let callee = list_opener
+                            .as_ref()
+                            .map_or_else(|| "…".to_owned(), ToString::to_string);
+                        return Err(syn::Error::new(
+                            open_span,
+                            format!(
+                                "unterminated turbofish: the generic list opened \
+                                 by `{callee} :: <` is never closed — close the \
+                                 `<…>` list before the next pipeline entry"
+                            ),
+                        ));
+                    }
+                    last_ident = None;
                     continue 'capture;
                 }
             } else if let TokenTree::Ident(ref ident) = tt {
+                last_ident = Some(ident.clone());
                 if stop_at_as && ident == "as" {
                     stopped_at_as = true;
                     rest = next;
@@ -933,11 +968,13 @@ fn capture_raw_impl(input: ParseStream<'_>, stop_at_as: bool) -> syn::Result<(To
     Ok((captured, stopped_at_as))
 }
 
-/// `true` when the ident is one of the [`BOUNDARY_KEYWORDS`] — compared
-/// without building a `String` (§3.1: no string machinery on the hot
-/// parse path; `Ident: PartialEq<&str>` compares in place). An explicit
-/// short-circuit chain, most frequent keywords first: the check runs for
-/// every ident of every captured body.
+/// `true` when the ident is one of the boundary keywords — the entry
+/// spellings listed in the module comment above (`map`, `bind`, `collect`,
+/// `fold`, `filter`, `join`, `fold_map`, `kleisli`, `traverse`, `source`,
+/// `witness`) — compared without building a `String` (§3.1: no string
+/// machinery on the hot parse path; `Ident: PartialEq<&str>` compares in
+/// place). An explicit short-circuit chain, most frequent keywords first:
+/// the check runs for every ident of every captured body.
 fn is_boundary_keyword(ident: &proc_macro2::Ident) -> bool {
     ident == "map"
         || ident == "bind"
