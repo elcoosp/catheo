@@ -34,6 +34,17 @@ catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.4.
 unsafe_code = "forbid"
 missing_docs = "deny"
 rust_2018_idioms = { level = "deny", priority = -1 }
+# Rationale (v0.5): the facade declares `extern crate self as catheo`
+# (crates/catheo/src/lib.rs) so macro-generated `::catheo::…` paths resolve
+# inside the facade's own unit tests and doctests (§3.4 codegen). The alias
+# is unused at the top level *by construction*; the allowance lives here —
+# lint configuration with its rationale, not a site-level suppression — and
+# `tests/v05_gates.rs::the_only_declared_extern_crate_is_the_facade_self_alias`
+# keeps this the only declared `extern crate` in the tree, so the allowance
+# can never silently license a second one. (Migrated from the former
+# `#[expect(unused_extern_crates)]` in lib.rs: the gate-5 posture is zero
+# lint-attribute suppressions in source.)
+unused_extern_crates = "allow"
 
 # Pedantic with zero exemptions: every lint is either honored in the code or,
 # where ARCHITECTURE.md mandates the flagged pattern (§2.2 #[inline(always)]
