@@ -10,10 +10,11 @@
 //! `quickstart` (the README snippet), `fallible_pipeline` (the §4.3
 //! traversal boundary), `monadic_surface` (the monadic surface — `join`
 //! and `fold_map`), `strict_monad` (the §4.4 one-trait surface — one
-//! `Monad` bound across every witness), and `instrumented_pipeline`
+//! `Monad` bound across every witness), `instrumented_pipeline`
 //! (the observable seam — `tracing` spans around the run, `miette` help
 //! text on the error path; dev-only dependencies that no shipped
-//! artifact links).
+//! artifact links), and `escape_hatches` (the §4.2 escape hatches and
+//! the §6.2 unfused oracle, in the same observable posture).
 //!
 //! ```
 //! use catheo::{pipeline, VecWitness};
