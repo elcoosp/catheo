@@ -1,11 +1,16 @@
 //! Layer 1 — the split-trait dual-witness kernels (ARCHITECTURE.md §2.2).
 //!
-//! Strict `Monad` implementations currently fail on stable Rust with
-//! `E0276`/`E0277` GAT normalization errors, so the categorical operations
-//! are decoupled into shallow traits that `rustc` normalizes linearly
-//! (the *transitional architecture*). When `-Znext-solver` stabilizes,
-//! `CategoricalMonad` is superseded by a strict `Monad` supertrait without
-//! breaking user code: the `run_bind` signature is compatible.
+//! Folding the split traits into a strict `Monad` **supertrait** with
+//! default bodies over a generic `Self` still fails on stable Rust with
+//! `E0276`/`E0277` GAT normalization errors (the shape-generic wall,
+//! §5.1), so the categorical operations are decoupled into shallow traits
+//! that `rustc` normalizes linearly (the *transitional architecture*).
+//! Since v0.5 the consumer-facing unification is available without the
+//! solver: [`crate::monad::Monad`] (§2.4/§4.4) carries `pure` + `bind` in
+//! one trait and delegates to these kernels — the required-kernel
+//! signatures are compatible, so `CategoricalMonad` remains the single
+//! lowering and the macro surface is untouched. The full surface
+//! migration stays tracked against `-Znext-solver` stabilization.
 //!
 //! Every kernel is an associated function taking the container by value and
 //! monomorphizes per call site (§2.3). Implementations are `#[inline(always)]`
