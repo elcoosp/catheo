@@ -50,7 +50,7 @@ fn main() {
 
 The two `map` stages and the `fold` fuse into a single pass; no intermediate `Vec` is built between source and eliminator.
 
-Every snippet in this README is runnable: the demos live in [`crates/catheo/examples`](crates/catheo/examples) — `cargo run -p catheo --example quickstart` (this pipeline), `fallible_pipeline` (the traversal boundary), `monadic_surface` (`join` and `fold_map`), and `instrumented_pipeline` (a `tracing`-spanned run with `miette` help text on the error path).
+Every snippet in this README is runnable: the demos live in [`crates/catheo/examples`](crates/catheo/examples) — `cargo run -p catheo --example quickstart` (this pipeline), `fallible_pipeline` (the traversal boundary), `monadic_surface` (`join` and `fold_map`), `strict_monad` (the one-trait `Monad` surface across every witness), and `instrumented_pipeline` (a `tracing`-spanned run with `miette` help text on the error path).
 
 ## Features
 
@@ -59,6 +59,7 @@ Every snippet in this README is runnable: the demos live in [`crates/catheo/exam
 - **Laws checked, errors spanned.** Functor identity/composition and monad left/right identity/associativity are swept per witness in `crates/catheo/tests/categorical_laws.rs`; a 40-case trybuild suite (9 compile-pass, 31 compile-fail) in `crates/catheo/tests/ui/` pins every rejection to the offending user token, not macro internals.
 - **Kleisli chains and monoid folds.** `kleisli: (f, g, …)` desugars the `>=>` chain to nested binds and still fuses across the boundary; `fold_map:` eliminates into any `Monoid` — the 12 integer types, `f32`/`f64`, `()`, `String`, `Vec<T>`, `Option<T>`, and tuples (impls in `crates/catheo/src/categorical.rs`).
 - **Monadic multiplication as a stage.** `join` (v0.4) flattens one nesting level of `W<W<T>>` — the §4.3 `bind(id)` desugar as a bare keyword, lowering to std's `.flatten()` on the fused path, so `map → join` runs as a single `flat_map` pass with no intermediate containers.
+- **One `Monad` to bound on.** The v0.5 strict layer (`crates/catheo/src/monad.rs`) puts `pure` and `bind` in a single trait — with `join` provided and `fmap` derived from `bind ∘ pure` — implemented by every witness and delegating to the split kernels, so a generic program `fn run<M: Monad>(…)` monomorphizes across `Vec`/`Option`/`Result` with the allocation profile pinned equal to the split-kernel spelling (`tests/v05_gates.rs`, `benches/monad.rs`).
 - **Traversal across an effect.** `traverse: (ResultWitness<E>, f)` (v0.3) runs a pointwise effect across the container and collects one effect around a `Vec` — std's short-circuiting `FromIterator` elimination, with the absorbable prefix chained into the traversal's iterator and the suffix folded inside the effect guard. No intermediate container between source and traversal; one traversal boundary per pipeline by grammar.
 - **Witnesses for containers you already use.** `VecWitness`, `OptionWitness`, and `ResultWitness<E>` implement the GAT-based `HKT` layer (`crates/catheo/src/hkt.rs`), or skip the witness entirely: `source: xs as Vec<i32>` derives it from the ascription.
 - **Escape hatches and an oracle.** `bind!: force` and `bind!: materialize` override the conservative fusion analysis in either direction, and `pipeline_unfused!` expands the same grammar without fusion — expanding a suspect pipeline through both macros isolates any mis-rewrite to the fusion pass.
@@ -190,12 +191,12 @@ The grammar at a glance:
 | `collect` | terminal: evaluate to the resulting container |
 | `map!: force` / `bind!: force` / `bind!: materialize` | escape hatches over the fusion analysis |
 
-Witnesses are `VecWitness`, `OptionWitness`, and `ResultWitness<E>` — or none at all when the source carries a type ascription. Outside pipelines, `catheo::kleisli(witness, f, g)` composes two arrows associatively, and the runtime layer exposes `Monoid`, `CategoricalFoldMap::run_fold_map`, `CategoricalTraverse::run_traverse`, `CategoricalPointed::run_pure`, and `CategoricalMonad::run_join` directly. The full layer model, fusion rules, and kernel coverage table are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Witnesses are `VecWitness`, `OptionWitness`, and `ResultWitness<E>` — or none at all when the source carries a type ascription. Outside pipelines, `catheo::kleisli(witness, f, g)` composes two arrows associatively, and the runtime layer exposes `Monoid`, `Monad` (the §4.4 one-trait surface: `pure`/`bind` required, `join`/`fmap` provided), `CategoricalFoldMap::run_fold_map`, `CategoricalTraverse::run_traverse`, `CategoricalPointed::run_pure`, and `CategoricalMonad::run_join` directly. The full layer model, fusion rules, and kernel coverage table are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Status
 
 > [!NOTE]
-> Catheo is at v0.4, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
+> Catheo is at v0.5, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
 
 Releases are cut by pushing a `v*.*.*` tag; git-cliff renders the changelog and `release.yml` publishes the GitHub release.
 
@@ -207,6 +208,7 @@ Milestone history, each gate re-applied at its release:
 | v0.2.0 | Kleisli chains, `fold_map`, escape hatches; benchmark gates re-applied |
 | v0.3.0 | `traverse` — the two-sided boundary discipline; §6.1 gates re-applied (record in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §6.1) |
 | v0.4.0 | `join` — the §4.3 monadic multiplication on the pipeline surface; §6.1 gates re-applied (`benches/join.rs`: C ≥ B, C > A) |
+| v0.5.0 | the strict `Monad` layer — the one-trait `pure`/`bind` unification, additive over the split kernels; §6.1 gates re-applied (laws + allocation profile in `tests/v05_gates.rs`, pointwise verdict in `benches/monad.rs`: C ≈ B) |
 
 To verify a checkout locally:
 
@@ -223,12 +225,12 @@ The published form of `docs/ARCHITECTURE.md` §7 — read the full document for 
 
 1. **Closure shape is constrained.** Fused closures are composed by application, not by substitution. A user closure that pattern-matches its argument destructures at the call boundary, not inside the fused body.
 2. **Structural observers are detected lexically.** A `bind` closure containing `.iter` anywhere in its body is treated as an observer, even if the call is dead code. Users can force fusion with `bind!: force`.
-3. **No strict `Monad` on stable.** The dual-witness layer is a documented transitional architecture; migration is tracked against `-Znext-solver` stabilization.
+3. **No strict `Monad` on stable.** The macro surface keeps the dual-witness split-trait layer — folding it into a GAT supertrait hierarchy over a generic `Self` still hits the `E0276`/`E0277` shape-generic wall; migration is tracked against `-Znext-solver` stabilization. The consumer-facing unification shipped additively in v0.5 (§2.4/§4.4): one `Monad` trait, delegating to the split kernels, laws- and allocation-gated.
 4. **`traverse` arrived in v0.3, and its shape is constrained.** The kernel collects into a pinned `Vec<U>`, the effect must be a built-in pointwise witness (`OptionWitness`/`ResultWitness<E>`), and a pipeline admits exactly one traversal boundary.
 5. **LLVM is not controlled.** The performance claims are empirically validated per-pipeline, not guaranteed universally.
 
 ## Learn more
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the full design: architectural layers, the fusion rules and their limits, the benchmark protocol, and the roadmap.
-- [crates/catheo/examples](crates/catheo/examples) — the runnable consumer demos: `quickstart`, `fallible_pipeline`, `monadic_surface` (`join` + `fold_map`), and `instrumented_pipeline` (the observable seam: `tracing` spans + `miette` help text).
+- [crates/catheo/examples](crates/catheo/examples) — the runnable consumer demos: `quickstart`, `fallible_pipeline`, `monadic_surface` (`join` + `fold_map`), `strict_monad` (the §4.4 one-trait `Monad` surface), and `instrumented_pipeline` (the observable seam: `tracing` spans + `miette` help text).
 - [CHANGELOG.md](CHANGELOG.md) — release history, generated by git-cliff from Conventional Commits.
