@@ -128,6 +128,12 @@ pub enum StageKind {
     Bind,
     /// Absolute fusion barrier (Rule 3).
     Filter,
+    /// The partial arrow (§4.3 v0.6 `filter_map`): `T -> Option<U>`, the
+    /// dropped arms flattened away. Bind-shaped for the fusion pass — Rule
+    /// 2 pairs a map into it, Rule 4 absorbs it — with the §3.2 scan
+    /// refinement: the arrow's `Some`/`None` constructors are the effect,
+    /// only the shape methods (`len`/`is_empty`/`iter`) flag it.
+    FilterMap,
     /// Traversal boundary (§4.3 v0.3): the absorbable prefix chains into
     /// the traversal's iterator, the suffix lowers inside the effect guard.
     Traverse,
@@ -141,6 +147,7 @@ impl StageKind {
             Self::Map => "map",
             Self::Bind => "bind",
             Self::Filter => "filter",
+            Self::FilterMap => "filter_map",
             Self::Traverse => "traverse",
         }
     }
@@ -276,7 +283,9 @@ pub struct Stage {
     /// `true` blocks upstream fusion: always for [`StageKind::Filter`] and
     /// [`StageKind::Traverse`] (the traversal is a boundary in both
     /// directions), for a [`StageKind::Bind`] whose closure is a structural
-    /// observer, and for every [`StageModifier::Materialize`] stage.
+    /// observer, for a [`StageKind::FilterMap`] whose closure observes
+    /// shape by the §3.2 partial-arrow scan (methods only), and for every
+    /// [`StageModifier::Materialize`] stage.
     pub fusion_barrier: bool,
     /// Conservative lexical approximation (§3.2): the closure body mentions
     /// container-shape tokens (`.len`, `.is_empty`, `.iter`, `Some`, `None`,
