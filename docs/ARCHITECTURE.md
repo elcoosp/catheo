@@ -413,7 +413,7 @@ Additional benchmarks:
 - Valid pipelines compile.
 - Malformed pipelines (missing witness, mismatched closure arity, unsupported combinator) produce spanned errors pointing to the offending token.
 - Fusion rules preserve semantics: property-based tests over `Vec`, `Option`, `Result` witnesses comparing fused and unfused execution on randomized inputs.
-- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`, `examples/escape_hatches.rs`, `examples/filter_map_pipeline.rs`, `examples/kernel_surface.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`).
+- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`, `examples/escape_hatches.rs`, `examples/filter_map_pipeline.rs`, `examples/hatch_matrix.rs`, `examples/kernel_surface.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`). The §4.2 hatch matrix — all six accepted spellings — is demonstrated by `examples/hatch_matrix.rs`, value-checked across the rows (`tests/consumer_examples.rs::the_hatch_matrix_demo_runs_every_accepted_spelling`) and measured by `benches/hatches.rs` (§6.1).
 
 ### 6.3 Expansion Budget
 
