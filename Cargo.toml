@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.1"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT"
@@ -30,9 +30,9 @@ criterion = "0.8.2"
 # them and the tree stopped resolving, so
 # `tests/release_gates.rs::internal_dependency_pins_track_the_workspace_version`
 # now keeps the drift impossible.
-catheo-parser = { path = "crates/catheo-parser", version = "0.5.1" }
-catheo-macros = { path = "crates/catheo-macros", version = "0.5.1" }
-catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.5.1" }
+catheo-parser = { path = "crates/catheo-parser", version = "0.5.0" }
+catheo-macros = { path = "crates/catheo-macros", version = "0.5.0" }
+catheo-counting-alloc = { path = "crates/catheo-counting-alloc", version = "0.5.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
