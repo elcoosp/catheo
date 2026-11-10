@@ -1239,3 +1239,59 @@ fn join_stops_the_raw_capture_boundary() {
     });
     assert!(err.contains("`,`"), "separator error, got: {err}");
 }
+
+// ─── The §6.2 diagnostic truth for the v0.6 grammar ─────────────────────────
+
+/// The unknown-entry diagnostic is the user's vocabulary map: it must name
+/// every keyword the grammar actually accepts. The v0.6 train added the
+/// `filter_map` entry to the parser but not to this list, so a typo like
+/// `filtermap:` was told the partial arrow did not exist — the diagnostic
+/// drifted from the grammar it describes.
+#[test]
+fn the_unknown_entry_diagnostic_names_the_partial_arrow() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        filtermap: |x| x,
+        collect,
+    });
+    assert!(
+        err.contains("found `filtermap`"),
+        "the rejection names the offender: {err}"
+    );
+    assert!(
+        err.contains("`filter_map`"),
+        "the accepted vocabulary must include the v0.6 partial arrow: {err}"
+    );
+}
+
+/// The non-ident arm (an offending punct) carries the same vocabulary list,
+/// so both spellings of the diagnostic track the grammar together.
+#[test]
+fn the_unknown_entry_punct_diagnostic_names_the_partial_arrow() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: xs,
+        ?: |x| x,
+    });
+    assert!(
+        err.contains("`filter_map`"),
+        "the punct arm names the partial arrow too: {err}"
+    );
+}
+
+/// The hatch rejection states the full set of kinds that accept §4.2
+/// hatches. `filter_map!` is accepted since v0.6 (`parse_bang_stage`), so
+/// "map and bind stages only" was stale the day the partial arrow shipped.
+#[test]
+fn the_hatch_rejection_names_the_hatchable_kinds() {
+    let err = parse_err(quote! {
+        witness: VecWitness,
+        source: nested,
+        join!: force,
+    });
+    assert!(
+        err.contains("`filter_map`"),
+        "the hatch message must name `filter_map`, which accepts hatches: {err}"
+    );
+}
