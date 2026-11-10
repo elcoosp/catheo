@@ -12,13 +12,13 @@
 //!
 //! The §6.1 verdict — *C ≥ B on all pipelines; C > A on at least the
 //! map-heavy and fold-heavy pipelines* — is read from this suite's
-//! criterion output and published in the README's "M3 notes". The
+//! criterion output and recorded in docs/ARCHITECTURE.md §6.1. The
 //! deterministic, CI-enforceable form of the same claim lives in
 //! `tests/abc_gates.rs` (value agreement + allocation gates); the two are
 //! kept in lockstep: identical shapes, identical closures.
 //!
-//! The published outcome on this toolchain (see README "M3 notes" for the
-//! measured table): C ≈ B on every barrier-free shape, C < A on
+//! The published outcome on this toolchain (see §6.1 for the measured
+//! records): C ≈ B on every barrier-free shape, C < A on
 //! map-heavy, fold-heavy and collect (allocation-free vs materializing),
 //! and on the filter chain the barrier's documented cost is *temporal* —
 //! extra passes over the in-place-materialized kernel state — with
