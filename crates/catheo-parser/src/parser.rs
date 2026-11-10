@@ -183,7 +183,10 @@ fn head_entry_error(span: Span, keyword: &str) -> syn::Error {
 /// Spanned diagnostic for a `!` written on an entry that admits no §4.2
 /// escape hatch.
 fn hatch_not_applicable(span: Span) -> syn::Error {
-    syn::Error::new(span, "escape hatches apply to `map` and `bind` stages only")
+    syn::Error::new(
+        span,
+        "escape hatches apply to `map`, `bind`, and `filter_map` stages only",
+    )
 }
 
 /// Parse the entry at the cursor, pushing any stages onto `stages`.
@@ -514,7 +517,13 @@ fn parse_bang_stage(kind: StageKind, kw_span: Span, input: ParseStream<'_>) -> s
     let fusion_barrier = match marker {
         StageModifier::Force => false,
         StageModifier::Materialize => true,
-        StageModifier::None => unreachable!(),
+        // Unreachable from this function (its marker parses from
+        // `force`/`materialize` only), but total: the plain-stage
+        // computation replaces the former `unreachable!()` — a panic bomb
+        // in library code that the zero-suppression posture reads as the
+        // last recourse, not a placeholder (§6.2: a rejection is a
+        // diagnostic, never a crash).
+        StageModifier::None => kind == StageKind::Filter || structural_observer,
     };
     Ok(Stage {
         kind,
@@ -828,21 +837,39 @@ fn require_separator(input: ParseStream<'_>) -> syn::Result<()> {
 }
 
 /// Diagnostics for anything that is not a known entry keyword.
+///
+/// The vocabulary list is the user's map of the grammar: it names every
+/// entry keyword the parser accepts, `filter_map` included (v0.6 — the
+/// partial arrow was added to the grammar but not to this list, so the
+/// diagnostic drifted from the language it describes). The parse loop
+/// (`while !input.is_empty()`) never consults this on an empty stream, so
+/// every arm is spanned at an offending user token (§6.2) — the former
+/// `Span::call_site()` "unexpected end of pipeline" arm was unreachable
+/// dead code that could never carry a user span, and is now an explicit
+/// invariant tripwire instead of a reachable-looking riddle.
 fn unknown_entry_error(input: ParseStream<'_>) -> syn::Error {
     match input.cursor().token_tree() {
         Some((TokenTree::Ident(ident), _)) => syn::Error::new(
             ident.span(),
             format!(
-                "expected one of `map`, `bind!`, `filter`, `join`, `kleisli`, \
-                 `traverse`, `fold`, `fold_map`, or `collect`, found `{ident}`"
+                "expected one of `map`, `bind!`, `filter`, `filter_map`, \
+                 `join`, `kleisli`, `traverse`, `fold`, `fold_map`, or \
+                 `collect`, found `{ident}`"
             ),
         ),
         Some((tt, _)) => syn::Error::new(
             tt.span(),
-            "expected one of `map`, `bind!`, `filter`, `join`, `kleisli`, `traverse`, \
-             `fold`, `fold_map`, or `collect`",
+            "expected one of `map`, `bind!`, `filter`, `filter_map`, `join`, \
+             `kleisli`, `traverse`, `fold`, `fold_map`, or `collect`",
         ),
-        None => syn::Error::new(Span::call_site(), "unexpected end of pipeline"),
+        // Invariant tripwire, unreachable from the entry loop: if this ever
+        // fires, the loop changed shape and grew an empty-cursor call — say
+        // so, rather than posing as a user-facing "unexpected end".
+        None => syn::Error::new(
+            Span::call_site(),
+            "internal: the unknown-entry diagnostic ran on an empty stream; \
+             please report this against catheo",
+        ),
     }
 }
 
