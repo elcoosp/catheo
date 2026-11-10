@@ -4,7 +4,7 @@
 //!
 //! A proc-macro library sells a *demonstration* as much as an API: the
 //! crate-level rustdoc points consumers at runnable examples, so this gate
-//! keeps the pointer honest. Six demos are pinned:
+//! keeps the pointer honest. Seven demos are pinned:
 //!
 //! - `quickstart.rs` — the README quickstart, runnable;
 //! - `fallible_pipeline.rs` — the traversal boundary over a `Result` effect;
@@ -21,7 +21,10 @@
 //!   `bind!: materialize`), the `pipeline_unfused!` oracle that isolates
 //!   any mis-rewrite to the fusion pass, the witness-free source
 //!   ascription, and the Option bind chain, in the same observable
-//!   posture.
+//!   posture;
+//! - `filter_map_pipeline.rs` — the §4.3 v0.6 partial arrow: `filter_map`
+//!   pruning the junk records in the fused prefix, the traversal boundary
+//!   validating what it keeps, in the observable seam posture.
 //!
 //! plus the README and the crate rustdoc must both link the directory.
 
@@ -202,6 +205,36 @@ fn the_escape_hatch_demo_runs_the_hatches_and_the_oracle() {
     );
     assert!(
         hatches.contains("--example escape_hatches"),
+        "the demo documents its own run line"
+    );
+}
+
+#[test]
+fn the_partial_arrow_demo_carries_the_observable_seam() {
+    let partial = example("filter_map_pipeline.rs");
+    assert!(
+        partial.contains("filter_map:"),
+        "the partial-arrow demo stages the §4.3 v0.6 arrow"
+    );
+    assert!(
+        partial.contains("traverse:"),
+        "the partial-arrow demo crosses the §4.3 v0.3 traversal boundary \
+         after the fused prefix"
+    );
+    assert!(
+        partial.contains("OptionWitness"),
+        "the partial-arrow demo covers the pointwise spelling (`and_then`)"
+    );
+    assert!(
+        partial.contains("tracing::"),
+        "the partial-arrow demo spans the pipeline run with `tracing`"
+    );
+    assert!(
+        partial.contains("help"),
+        "the fallible path carries miette help text, not a bare message"
+    );
+    assert!(
+        partial.contains("--example filter_map_pipeline"),
         "the demo documents its own run line"
     );
 }
