@@ -157,7 +157,7 @@ pub struct Stage {
     pub effect: Option<syn::Path>,  // §4.3 v0.3: the traverse effect witness
 }
 
-pub enum StageKind { Map, Bind, Filter, Traverse }
+pub enum StageKind { Map, Bind, Filter, FilterMap, Traverse }
 
 pub enum Terminal {
     Fold { init: TokenStream, closure: Box<Closure>, span: Span, is_pure: bool },
@@ -167,13 +167,15 @@ pub enum Terminal {
 }
 ```
 
-The sketch tracks the v0.4 grammar; the authoritative definitions live in
+The sketch tracks the v0.6 grammar (the §4.3.3 partial arrow added
+`FilterMap`); the authoritative definitions live in
 `crates/catheo-parser/src/ast.rs`.
 
-Custom keywords (`witness`, `source`, `map`, `bind`, `filter`, `join`,
-`kleisli`, `traverse`, `fold`, `fold_map`, `collect`, plus the §4.2 hatch
-markers `force`/`materialize`) are declared via `syn::custom_keyword!` to
-avoid string comparison in the hot parse path.
+Custom keywords (`witness`, `source`, `map`, `bind`, `filter`,
+`filter_map`, `join`, `kleisli`, `traverse`, `fold`, `fold_map`,
+`collect`, plus the §4.2 hatch markers `force`/`materialize`) are
+declared via `syn::custom_keyword!` to avoid string comparison in the
+hot parse path.
 
 ### 3.2 Barrier Annotation
 
@@ -411,7 +413,7 @@ Additional benchmarks:
 - Valid pipelines compile.
 - Malformed pipelines (missing witness, mismatched closure arity, unsupported combinator) produce spanned errors pointing to the offending token.
 - Fusion rules preserve semantics: property-based tests over `Vec`, `Option`, `Result` witnesses comparing fused and unfused execution on randomized inputs.
-- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`, `examples/escape_hatches.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`).
+- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`, `examples/escape_hatches.rs`, `examples/filter_map_pipeline.rs`, `examples/kernel_surface.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`).
 
 ### 6.3 Expansion Budget
 
