@@ -1,0 +1,14 @@
+error[E0277]: the trait bound `ResultWitness<String>: CategoricalFilterMap` is not satisfied
+ --> tests/ui/error_filter_map_on_result_witness.rs:7:18
+  |
+7 |         witness: catheo::ResultWitness<String>,
+  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CategoricalFilterMap` is not implemented for `ResultWitness<String>`
+  |
+help: the following other types implement trait `CategoricalFilterMap`
+ --> src/categorical.rs
+  |
+  | impl CategoricalFilterMap for VecWitness {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `VecWitness`
+...
+  | impl CategoricalFilterMap for OptionWitness {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `OptionWitness`
