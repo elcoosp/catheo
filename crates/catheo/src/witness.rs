@@ -64,6 +64,28 @@ impl<E> core::fmt::Debug for ResultWitness<E> {
     }
 }
 
+// The equality/hash impls mirror the manual `Clone`/`Copy` posture above:
+// bound-free over `E`, because the witness is a zero-sized `PhantomData`
+// over a function pointer — every value of the type is equal to every
+// other, with no requirement on the error type. `VecWitness` and
+// `OptionWitness` carry the same comparison surface via their derives
+// (`PartialEq`, `Eq`, `Hash`); these impls give the parameterized witness
+// the symmetric API without regressing the unbounded-impl posture a
+// `#[derive]` would break (`E: PartialEq` bounds where none are needed).
+impl<E> PartialEq for ResultWitness<E> {
+    fn eq(&self, other: &Self) -> bool {
+        self._marker == other._marker
+    }
+}
+
+impl<E> Eq for ResultWitness<E> {}
+
+impl<E> core::hash::Hash for ResultWitness<E> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self._marker.hash(state);
+    }
+}
+
 impl<E> HKT for ResultWitness<E> {
     type Type<T> = Result<T, E>;
 }
