@@ -9,6 +9,78 @@ are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 ### 🚀 Features
 
+- *(runtime)* The partial-arrow kernel (CategoricalFilterMap)
+- *(runtime)* The facade exports CategoricalFilterMap
+- *(parser)* The methods-only scan for the partial arrow
+- *(parser)* StageKind::FilterMap joins the stage grammar
+- *(parser)* The filter_map entry and kind-aware stage flags
+- *(fuse)* Rule 2 pairs maps into the partial arrow
+- *(codegen)* The partial arrow lowers at its std position
+
+### 🐛 Bug Fixes
+
+- *(release)* Pins track the version; the gate enforces it
+- *(parser)* Unterminated turbofish reports the opening angle
+- *(build)* Restore the lock file's package tables
+- *(parser)* The diagnostics track the v0.6 grammar
+
+### 📈 Benchmarks
+
+- *(filter_map)* The 6.1 three-way partial-arrow suite
+
+### 📚 Documentation
+
+- *(examples)* The escape-hatch and oracle consumer demo
+- *(readme)* The compiling hatch snippet and demo pointers
+- *(architecture)* The shipped truth for the budget fallback
+- *(examples)* The partial-arrow consumer demo
+- The verdict pointers name ARCHITECTURE 6.1
+- The verdict pointers name ARCHITECTURE 6.1
+- The verdict pointers name ARCHITECTURE 6.1
+- The verdict pointers name ARCHITECTURE 6.1
+- *(readme)* The v0.6 milestone row and the partial arrow
+- *(architecture)* The 4.3.3 layer and the 6.1 record
+- *(changelog)* Record the 0.5.1 entry
+- *(changelog)* Record the 0.6.0 entry
+- *(readme)* The hatch-matrix truth and the kernel demo
+- *(architecture)* The 3.1 keyword set and the 6.2 demo list
+- *(rustdoc)* The facade points at the kernel-surface demo
+- *(examples)* The runtime-kernel consumer demo
+
+### 🚜 Refactor
+
+- *(ast)* Drop the test-only stage_param accessor
+
+### 🧪 Testing
+
+- *(v0.6)* The partial-arrow deterministic gates
+- *(ui)* The partial-arrow compile-pass cases
+- *(ui)* Filter_map over ResultWitness is rejected spanned
+- *(ui)* Pin the filter_map rejection snapshot
+- *(examples)* Pin the partial-arrow consumer gate
+- *(release)* The publication contract covers 0.5.1
+- *(release)* The publication contract covers 0.6.0
+- *(examples)* Pin the kernel-surface consumer gate
+
+### 🔨 Build
+
+- *(bench)* Register the filter_map bench target
+
+### ⚙️ Continuous Integration
+
+- Smoke the filter_map bench as the ninth target
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V0.5.1
+- *(release)* Bump the workspace to 0.5.0
+- *(release)* Bump the workspace to 0.6.0
+- *(release)* Gitignore the ship manifest
+
+## [0.6.0] - 2026-11-10
+
+### 🚀 Features
+
 - *(runtime)* The §4.3.3 partial-arrow kernel (`CategoricalFilterMap`) — std's `filter_map` on `Vec`, `and_then` on `Option`; no impl for `ResultWitness<E>` (a dropped `Ok` has no error-free denotation), and the facade exports the trait
 - *(parser)* The `filter_map` stage grammar — `StageKind::FilterMap` joins the grammar, the `filter_map:` entry with the §4.2 hatches, the methods-only §3.2 scan (the arrow's `Some`/`None` are its effect constructors, not an observation), and the kind-aware stage flags
 - *(fuse)* Rule 2 pairs a map into the partial arrow; the composed-body rescan applies the refined scan
