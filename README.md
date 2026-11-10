@@ -50,7 +50,7 @@ fn main() {
 
 The two `map` stages and the `fold` fuse into a single pass; no intermediate `Vec` is built between source and eliminator.
 
-Every snippet in this README is runnable: the demos live in [`crates/catheo/examples`](crates/catheo/examples) — `cargo run -p catheo --example quickstart` (this pipeline), `fallible_pipeline` (the traversal boundary), `monadic_surface` (`join` and `fold_map`), `strict_monad` (the one-trait `Monad` surface across every witness), `instrumented_pipeline` (a `tracing`-spanned run with `miette` help text on the error path), `filter_map_pipeline` (the v0.6 partial arrow behind the same observable seam), and `escape_hatches` (the §4.2 hatches and the `pipeline_unfused!` oracle).
+Every snippet in this README is runnable: the demos live in [`crates/catheo/examples`](crates/catheo/examples) — `cargo run -p catheo --example quickstart` (this pipeline), `fallible_pipeline` (the traversal boundary), `monadic_surface` (`join` and `fold_map`), `strict_monad` (the one-trait `Monad` surface across every witness), `instrumented_pipeline` (a `tracing`-spanned run with `miette` help text on the error path), `filter_map_pipeline` (the v0.6 partial arrow behind the same observable seam), `escape_hatches` (the §4.2 hatches and the `pipeline_unfused!` oracle), and `kernel_surface` (the §2.2 runtime layer driven directly — kernels, `kleisli`, and a user `Monoid`, no macro in sight).
 
 ## Features
 
@@ -191,14 +191,14 @@ The grammar at a glance:
 | `fold: (init, f)` | universal eliminator to a single value |
 | `fold_map:` | monoid eliminator; accumulator starts at the identity |
 | `collect` | terminal: evaluate to the resulting container |
-| `map!: force` / `bind!: force` / `bind!: materialize` / `filter_map!: force` | escape hatches over the fusion analysis |
+| `map!: force` / `map!: materialize` / `bind!: force` / `bind!: materialize` / `filter_map!: force` / `filter_map!: materialize` | escape hatches over the fusion analysis |
 
 Witnesses are `VecWitness`, `OptionWitness`, and `ResultWitness<E>` — or none at all when the source carries a type ascription. Outside pipelines, `catheo::kleisli(witness, f, g)` composes two arrows associatively, and the runtime layer exposes `Monoid`, `Monad` (the §4.4 one-trait surface: `pure`/`bind` required, `join`/`fmap` provided), `CategoricalFilterMap::run_filter_map` (the §4.3 v0.6 partial arrow), `CategoricalFoldMap::run_fold_map`, `CategoricalTraverse::run_traverse`, `CategoricalPointed::run_pure`, and `CategoricalMonad::run_join` directly. The full layer model, the fusion rules, and the benchmark protocol are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Status
 
 > [!NOTE]
-> Catheo is at v0.6, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
+> Catheo is at v0.6.0, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
 
 Releases are cut by pushing a `v*.*.*` tag; git-cliff renders the changelog and `release.yml` publishes the GitHub release.
 
@@ -235,5 +235,5 @@ The published form of `docs/ARCHITECTURE.md` §7 — read the full document for 
 ## Learn more
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the full design: architectural layers, the fusion rules and their limits, the benchmark protocol, and the roadmap.
-- [crates/catheo/examples](crates/catheo/examples) — the runnable consumer demos: `quickstart`, `fallible_pipeline`, `monadic_surface` (`join` + `fold_map`), `strict_monad` (the §4.4 one-trait `Monad` surface), `instrumented_pipeline` (the observable seam: `tracing` spans + `miette` help text), `filter_map_pipeline` (the §4.3 v0.6 partial arrow behind the same seam), and `escape_hatches` (the §4.2 hatches and the `pipeline_unfused!` oracle).
+- [crates/catheo/examples](crates/catheo/examples) — the runnable consumer demos: `quickstart`, `fallible_pipeline`, `monadic_surface` (`join` + `fold_map`), `strict_monad` (the §4.4 one-trait `Monad` surface), `instrumented_pipeline` (the observable seam: `tracing` spans + `miette` help text), `filter_map_pipeline` (the §4.3 v0.6 partial arrow behind the same seam), `escape_hatches` (the §4.2 hatches and the `pipeline_unfused!` oracle), and `kernel_surface` (the §2.2 runtime layer without the macro: split kernels, `kleisli`, a user-defined `Monoid`).
 - [CHANGELOG.md](CHANGELOG.md) — release history, generated by git-cliff from Conventional Commits.
