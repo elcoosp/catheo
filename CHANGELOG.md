@@ -5,6 +5,35 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.6.1] - 2026-11-10
+
+### 🐛 Bug Fixes
+
+- *(docs)* The README carries the ui-count truth and the demo row
+- *(changelog)* Drop the duplicated 0.6.0 section
+- *(parser)* The entry vocabulary names every accepted spelling
+- *(parser)* The component-suffix oracle doc names its role
+
+### 📚 Documentation
+
+- *(examples)* The hatch-matrix consumer demo and its pointers
+
+### 🧪 Testing
+
+- *(consumer)* Pin the hatch-matrix consumer gate
+
+### 🔨 Build
+
+- *(bench)* The 6.1 hatch suite, registered
+
+### ⚙️ Continuous Integration
+
+- Smoke the hatch bench as the tenth target
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V0.6.1
+
 ## [0.6.0] - 2026-11-10
 
 ### 🚀 Features
