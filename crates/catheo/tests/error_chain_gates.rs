@@ -8,8 +8,8 @@
 //! wall-clock comparisons cannot be enforced on shared CI runners, so
 //! this file enforces the *deterministic* consequences of the claim while
 //! `benches/error_chains.rs` is the measurement instrument whose criterion
-//! output is the published evidence (README, "M4 notes"). The two are kept
-//! in lockstep: identical shapes, identical closures.
+//! output is the published evidence (docs/ARCHITECTURE.md §6.1). The two
+//! are kept in lockstep: identical shapes, identical closures.
 //!
 //! What is enforced here, and why it is equivalent to the §6.1 gate:
 //!
