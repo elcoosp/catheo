@@ -53,13 +53,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.3
       # Shortened measurement window: this job gates compile-and-run health
-      # of all eight bench targets. The deterministic gates (§6.1 decision
+      # of all nine bench targets. The deterministic gates (§6.1 decision
       # gates, §6.3 expansion budget, kernel linearity) run under the plain
       # `cargo test --workspace` job (they are integration tests in
       # `tests/`); the §6.1 verdict itself is read from criterion output
-      # and published in the README's "M3 notes" / "M4 notes". Scoped per
-      # target: a workspace-wide `cargo bench` would feed criterion's flags
-      # to the libtest harnesses, which reject them.
+      # and recorded in docs/ARCHITECTURE.md §6.1. Scoped per target: a
+      # workspace-wide `cargo bench` would feed criterion's flags to the
+      # libtest harnesses, which reject them.
       - run: cargo bench -p catheo-parser --bench parse -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
       - run: cargo bench -p catheo --bench kernels -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
       - run: cargo bench -p catheo --bench abc -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
@@ -68,6 +68,7 @@ jobs:
       - run: cargo bench -p catheo --bench traverse -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
       - run: cargo bench -p catheo --bench join -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
       - run: cargo bench -p catheo --bench monad -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
+      - run: cargo bench -p catheo --bench filter_map -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
 
   macro-stats:
     name: nightly -Zmacro-stats (§5.3)
