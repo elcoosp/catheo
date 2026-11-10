@@ -60,3 +60,7 @@ harness = false
 [[bench]]
 name = "filter_map"
 harness = false
+
+[[bench]]
+name = "hatches"
+harness = false
