@@ -168,6 +168,10 @@ fn internal_dependency_pins_track_the_workspace_version() {
 fn changelog_documents_the_releases() {
     let changelog = read("CHANGELOG.md");
     assert!(
+        changelog.contains("## [0.5.1]"),
+        "the git-cliff changelog must document the 0.5.1 maintenance release: {changelog}"
+    );
+    assert!(
         changelog.contains("## [0.5.0]"),
         "the git-cliff changelog must document the 0.5.0 release: {changelog}"
     );
