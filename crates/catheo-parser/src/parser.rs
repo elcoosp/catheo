@@ -839,29 +839,29 @@ fn require_separator(input: ParseStream<'_>) -> syn::Result<()> {
 /// Diagnostics for anything that is not a known entry keyword.
 ///
 /// The vocabulary list is the user's map of the grammar: it names every
-/// entry keyword the parser accepts, `filter_map` included (v0.6 — the
-/// partial arrow was added to the grammar but not to this list, so the
-/// diagnostic drifted from the language it describes). The parse loop
+/// entry spelling the parser accepts — the bare stage keywords, and the
+/// §4.2 hatch spellings on the three hatch-capable stages (`map!`,
+/// `bind!`, `filter_map!` — the matrix the README grammar table
+/// publishes and `tests/release_gates.rs` pins). The list tracks the
+/// grammar the same way it has since v0.6 (`filter_map` was added to the
+/// grammar but not to this list, so the diagnostic drifted from the
+/// language it describes; the v0.6.1 sweep completed the matrix rows
+/// `bind`, `map!`, and `filter_map!`). The parse loop
 /// (`while !input.is_empty()`) never consults this on an empty stream, so
 /// every arm is spanned at an offending user token (§6.2) — the former
 /// `Span::call_site()` "unexpected end of pipeline" arm was unreachable
 /// dead code that could never carry a user span, and is now an explicit
 /// invariant tripwire instead of a reachable-looking riddle.
 fn unknown_entry_error(input: ParseStream<'_>) -> syn::Error {
+    const VOCABULARY: &str = "expected one of `map`, `map!`, `bind`, `bind!`, \
+         `filter`, `filter_map`, `filter_map!`, `join`, `kleisli`, \
+         `traverse`, `fold`, `fold_map`, or `collect`";
     match input.cursor().token_tree() {
         Some((TokenTree::Ident(ident), _)) => syn::Error::new(
             ident.span(),
-            format!(
-                "expected one of `map`, `bind!`, `filter`, `filter_map`, \
-                 `join`, `kleisli`, `traverse`, `fold`, `fold_map`, or \
-                 `collect`, found `{ident}`"
-            ),
+            format!("{VOCABULARY}, found `{ident}`"),
         ),
-        Some((tt, _)) => syn::Error::new(
-            tt.span(),
-            "expected one of `map`, `bind!`, `filter`, `filter_map`, `join`, \
-             `kleisli`, `traverse`, `fold`, `fold_map`, or `collect`",
-        ),
+        Some((tt, _)) => syn::Error::new(tt.span(), VOCABULARY),
         // Invariant tripwire, unreachable from the entry loop: if this ever
         // fires, the loop changed shape and grew an empty-cursor call — say
         // so, rather than posing as a user-facing "unexpected end".
