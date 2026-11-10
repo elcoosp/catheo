@@ -20,10 +20,30 @@ const OBSERVER_METHODS: [&str; 3] = ["len", "is_empty", "iter"];
 /// `.iter`, `Some`, `None`, `Ok`, or `Err` at any nesting depth.
 #[must_use]
 pub fn is_structural_observer(body: &TokenStream) -> bool {
-    scan_observer(body, false)
+    scan_observer(body, false, true)
 }
 
-fn scan_observer(tokens: &TokenStream, after_dot: bool) -> bool {
+/// The §4.3 v0.6 refinement for the partial arrow (`filter_map` stages).
+///
+/// A `filter_map` arrow is `T -> Option<U>`: its `Some`/`None` tokens are
+/// the arrow's *effect constructors*, lexically unavoidable in the inline
+/// spelling and flattened away by the kernel before anything downstream
+/// could observe them — they say nothing about how the closure treats the
+/// container it is fed. The shape observers that matter for fusion
+/// soundness are exactly the method idents, so the partial arrow's scan
+/// keeps [`OBSERVER_METHODS`] and drops the constructor idents.
+///
+/// Still conservative (§3.2): false positives acceptable, false negatives
+/// are not — `.len`/`.is_empty`/`.iter` anywhere in the body flags the
+/// stage as an observing barrier, and the composed-body rescan
+/// (`crate::fuse`) applies the same refinement when an upstream producer
+/// absorbs into a partial arrow.
+#[must_use]
+pub fn is_partial_arrow_observer(body: &TokenStream) -> bool {
+    scan_observer(body, false, false)
+}
+
+fn scan_observer(tokens: &TokenStream, after_dot: bool, scan_constructors: bool) -> bool {
     let mut after_dot = after_dot;
     for tt in tokens.clone() {
         match tt {
@@ -31,7 +51,7 @@ fn scan_observer(tokens: &TokenStream, after_dot: bool) -> bool {
                 // `Ident: PartialEq<&str>` — no String is built on the scan
                 // path (§3.1/§5.3: the lexical approximations run for every
                 // bind at parse time).
-                if OBSERVER_IDENTS.iter().any(|marker| ident == marker)
+                if (scan_constructors && OBSERVER_IDENTS.iter().any(|marker| ident == marker))
                     || (after_dot && OBSERVER_METHODS.iter().any(|marker| ident == marker))
                 {
                     return true;
@@ -42,7 +62,7 @@ fn scan_observer(tokens: &TokenStream, after_dot: bool) -> bool {
                 after_dot = punct.as_char() == '.';
             }
             TokenTree::Group(ref group) => {
-                if scan_observer(&group.stream(), after_dot) {
+                if scan_observer(&group.stream(), after_dot, scan_constructors) {
                     return true;
                 }
             }
@@ -90,7 +110,7 @@ fn scan_mut_ref(tokens: &TokenStream, after_amp: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_lexically_pure, is_structural_observer};
+    use super::{is_lexically_pure, is_partial_arrow_observer, is_structural_observer};
     use quote::quote;
 
     #[test]
@@ -126,5 +146,29 @@ mod tests {
         assert!(!is_lexically_pure(&quote!({ push(&mut acc, x) })));
         assert!(is_lexically_pure(&quote!(x & mask)));
         assert!(is_lexically_pure(&quote!(mut x = 3)));
+    }
+
+    #[test]
+    fn partial_arrow_scan_keeps_methods_drops_constructors() {
+        // The §4.3 v0.6 refinement: `Some`/`None` are the partial arrow's
+        // effect constructors, not an observation.
+        assert!(!is_partial_arrow_observer(&quote!(if x % 2 == 0 {
+            Some(i64::from(x) * 2)
+        } else {
+            None
+        })));
+        assert!(is_structural_observer(&quote!(if x % 2 == 0 {
+            Some(i64::from(x) * 2)
+        } else {
+            None
+        })));
+        // The shape observers still flag both scans, at any depth.
+        assert!(is_partial_arrow_observer(&quote!(x.iter().count())));
+        assert!(is_partial_arrow_observer(&quote!({ deep.len() })));
+        assert!(is_partial_arrow_observer(&quote!(x.is_empty())));
+        // `Ok`/`Err` are unscanned constructors for the partial arrow too:
+        // they may occur inside the body for unrelated reasons (an inner
+        // fallible helper) without observing the container.
+        assert!(!is_partial_arrow_observer(&quote!(ok_or(x, Err(()))?)));
     }
 }
