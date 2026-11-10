@@ -15,7 +15,11 @@
 //!   semver — the tag the release workflow cuts (`v*.*.*`) is checked
 //!   against the manifest by the release driver, so a bump stays one edit;
 //! - the changelog documents the release history;
-//! - the README status table records the milestone history.
+//! - the README status table records the milestone history;
+//! - the README trybuild-case counts track the `tests/ui/` suite on disk —
+//!   the suite is globbed (`trybuild.rs`), so a case added without a README
+//!   bump is exactly the drift the v0.6 train shipped (40 published, 42
+//!   on disk) and this gate keeps it impossible.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -226,6 +230,59 @@ fn readme_status_records_the_release_history() {
         readme.contains("v0.1.0") && readme.contains("M0–M5"),
         "the README status keeps the M5 release history"
     );
+}
+
+/// The README's published trybuild counts must equal the suite the harness
+/// actually globs. `trybuild.rs` runs `pass_*.rs` and `error_*.rs` by
+/// filename glob, so the on-disk counts are the truth; the README restates
+/// them in prose ("a 40-case trybuild suite (9 compile-pass, 31
+/// compile-fail)"), and the v0.6 train shipped that prose two cases behind
+/// the suite. The fragments are derived from disk, not pinned, so the next
+/// added case cannot drift the way the hatch-matrix rows did.
+#[test]
+fn readme_trybuild_counts_track_the_ui_suite() {
+    let ui_dir = workspace_root().join("crates/catheo/tests/ui");
+    let display = ui_dir.display();
+    let mut pass = 0usize;
+    let mut error = 0usize;
+    let entries = fs::read_dir(&ui_dir)
+        .unwrap_or_else(|err| panic!("the ui suite must be readable at {display}: {err}"));
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|err| panic!("the ui suite must be readable at {display}: {err}"))
+            .path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".rs") {
+            continue;
+        }
+        if name.starts_with("pass_") {
+            pass += 1;
+        }
+        if name.starts_with("error_") {
+            error += 1;
+        }
+    }
+    assert!(
+        pass > 0 && error > 0,
+        "the ui suite must be discovered: found {pass} compile-pass and \
+         {error} compile-fail cases under {display}"
+    );
+    let readme = read("README.md");
+    for fragment in [
+        format!("{}-case trybuild suite", pass + error),
+        format!("{pass} compile-pass"),
+        format!("{error} compile-fail"),
+    ] {
+        assert!(
+            readme.contains(&fragment),
+            "the README must publish the on-disk ui truth `{fragment}`: the \
+             suite is globbed by filename, so a case added without a README \
+             bump publishes a stale count (the v0.6 train shipped 40 against \
+             the 42 on disk)"
+        );
+    }
 }
 
 /// The README grammar table is the published §4.2 hatch matrix: it must
