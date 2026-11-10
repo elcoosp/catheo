@@ -6,9 +6,12 @@
 //! - **Rule 1 — adjacent `Map` fusion (unconditional):**
 //!   `Map(f) → Map(g)  ⟹  Map(|x| g(f(x)))`. Justified by functor
 //!   composition; no monad laws required.
-//! - **Rule 2 — `Map` → non-observing `Bind` fusion (Chin's
-//!   producer/consumer):** `Map(f) → Bind(h)` with `h` not a structural
-//!   observer `⟹ Bind(|x| h(f(x)))`.
+//! - **Rule 2 — `Map` → non-observing consumer fusion (Chin's
+//!   producer/consumer):** `Map(f) → C(h)` with `h` not a structural
+//!   observer `⟹ C(|x| h(f(x)))`, where `C` is a `Bind` or — since v0.6 —
+//!   the partial arrow of a `FilterMap` (§4.3.3): both are elementwise
+//!   consumers, so absorbing the producer into the argument position is
+//!   sound for either.
 //! - **Rule 3 — `Filter` is an absolute barrier.** No rewrite crosses it;
 //!   a filter stage is never fused into and never fused over.
 //! - **Rule 4 — `Fold` absorbs a pure prefix chain.** This is a *lowering*

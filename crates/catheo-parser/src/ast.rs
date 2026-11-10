@@ -2,7 +2,8 @@
 //!
 //! Mirrors [`docs/ARCHITECTURE.md`] §3.1. Closures are stored as raw
 //! [`TokenStream`] bodies; the parser validates only the pipeline grammar and
-//! the closure *header* (exactly one identifier parameter). Closure bodies are
+//! the closure *header*, at the entry's arity (one identifier parameter for
+//! the stage combinators, two for `fold`). Closure bodies are
 //! opaque to this crate by design (§5.3): parsing cost is zero for the parts
 //! we do not interpret, while `Span` information is preserved for diagnostics.
 
