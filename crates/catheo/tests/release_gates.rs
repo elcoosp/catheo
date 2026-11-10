@@ -168,6 +168,12 @@ fn internal_dependency_pins_track_the_workspace_version() {
 fn changelog_documents_the_releases() {
     let changelog = read("CHANGELOG.md");
     assert!(
+        changelog.contains("## [0.6.0]"),
+        "the git-cliff changelog must document the 0.6.0 partial-arrow \
+         release: the v0.6 train merged but the publication entry never \
+         landed, so the release history stops at 0.5.1: {changelog}"
+    );
+    assert!(
         changelog.contains("## [0.5.1]"),
         "the git-cliff changelog must document the 0.5.1 maintenance release: {changelog}"
     );
@@ -197,6 +203,10 @@ fn changelog_documents_the_releases() {
 fn readme_status_records_the_release_history() {
     let readme = read("README.md");
     assert!(
+        readme.contains("v0.6.0") && readme.contains("filter_map"),
+        "the README status must record the v0.6 partial-arrow milestone"
+    );
+    assert!(
         readme.contains("v0.5.0") && readme.contains("`Monad`"),
         "the README status must record the v0.5 strict-Monad milestone"
     );
@@ -216,4 +226,29 @@ fn readme_status_records_the_release_history() {
         readme.contains("v0.1.0") && readme.contains("M0–M5"),
         "the README status keeps the M5 release history"
     );
+}
+
+/// The README grammar table is the published §4.2 hatch matrix: it must
+/// name every spelling `parse_bang_stage` accepts. The v0.6 train left the
+/// row at four of the six accepted spellings — `map!: materialize` and
+/// `filter_map!: materialize` parse but were never published, so the
+/// README under-documented the surface it advertises.
+#[test]
+fn readme_publishes_every_accepted_hatch_spelling() {
+    let readme = read("README.md");
+    for spelling in [
+        "`map!: force`",
+        "`map!: materialize`",
+        "`bind!: force`",
+        "`bind!: materialize`",
+        "`filter_map!: force`",
+        "`filter_map!: materialize`",
+    ] {
+        assert!(
+            readme.contains(spelling),
+            "the README grammar table must publish the accepted hatch \
+             spelling `{spelling}` (§4.2: the hatches apply to `map`, \
+             `bind`, and `filter_map` alike)"
+        );
+    }
 }
