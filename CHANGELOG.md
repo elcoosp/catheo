@@ -5,6 +5,23 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.5.1] - 2026-11-09
+
+### 🐛 Bug Fixes
+
+- *(parser)* Unterminated turbofish reports the opening angle
+- *(release)* Pins track the version; the gate enforces it
+
+### 🚜 Refactor
+
+- *(ast)* Drop the test-only stage_param accessor
+
+### 📚 Documentation
+
+- *(architecture)* The shipped truth for the budget fallback
+- *(readme)* The compiling hatch snippet and demo pointers
+- *(examples)* The escape-hatch and oracle consumer demo
+
 ## [0.5.0] - 2026-11-10
 
 ### 🚀 Features
