@@ -15,8 +15,11 @@
 //! `tracing` spans around the run, `miette` help text on the error path;
 //! dev-only dependencies that no shipped artifact links),
 //! `filter_map_pipeline` (the §4.3 v0.6 partial arrow behind the same
-//! observable seam), and `escape_hatches` (the §4.2 escape hatches and
-//! the §6.2 unfused oracle, in the same observable posture).
+//! observable seam), `escape_hatches` (the §4.2 escape hatches and
+//! the §6.2 unfused oracle, in the same observable posture), and
+//! `kernel_surface` (this runtime layer driven directly — the §2.2
+//! split kernels, the standalone [`kleisli`] composition, and a
+//! user-defined [`Monoid`], no macro in sight).
 //!
 //! ```
 //! use catheo::{pipeline, VecWitness};
