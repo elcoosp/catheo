@@ -4,7 +4,7 @@
 //!
 //! A proc-macro library sells a *demonstration* as much as an API: the
 //! crate-level rustdoc points consumers at runnable examples, so this gate
-//! keeps the pointer honest. Nine demos are pinned:
+//! keeps the pointer honest. Ten demos are pinned:
 //!
 //! - `quickstart.rs` — the README quickstart, runnable;
 //! - `fallible_pipeline.rs` — the traversal boundary over a `Result` effect;
@@ -34,6 +34,12 @@
 //!   split kernels (`run_map`, `run_filter_map`, `run_join`,
 //!   `run_traverse`), the standalone `kleisli` composition, and a
 //!   user-defined `Monoid`, in the observable seam posture.
+//! - `ascribed_witnesses.rs` — the §4.2 source-ascription surface: every
+//!   built-in witness derived from the `as` spelling (`as Vec<i32>`,
+//!   `as Option<String>`, `as Result<Vec<String>, BadLine>`, and the fully
+//!   qualified `std::vec::Vec<…>` spelling), with no `witness:` entry and
+//!   no witness identifier anywhere in the file, in the observable seam
+//!   posture.
 //!
 //! plus the README and the crate rustdoc must both link the directory.
 
@@ -327,6 +333,56 @@ fn the_kernel_surface_demo_carries_the_runtime_layer() {
     );
     assert!(
         kernels.contains("--example kernel_surface"),
+        "the demo documents its own run line"
+    );
+}
+
+/// The §4.2 ascription surface is published (`ast.rs::witness_from_type`
+/// carries the derivation and its spanned rejections, the release gate
+/// publishes the witness-free posture in `README.md`'s ascription bullet)
+/// and the ui suite runs it (`tests/ui/pass_source_ascription.rs`) — but
+/// no runnable demo ever derived a pointwise witness from an ascription:
+/// the demos spelled every witness at the head except the ones the
+/// `as` spelling can produce. This gate pins the runnable truth: one demo
+/// derives every built-in witness from the ascription alone — no
+/// `witness:` entry, and no witness identifier anywhere in the file.
+#[test]
+fn the_ascribed_witness_demo_derives_every_builtin_witness() {
+    let demo = example("ascribed_witnesses.rs");
+    assert!(
+        demo.contains("pipeline!"),
+        "the ascribed demo drives the `pipeline!` macro"
+    );
+    for ascription in ["as Vec<", "as Option<", "as Result<"] {
+        assert!(
+            demo.contains(ascription),
+            "the demo must derive a witness from the §4.2 `{ascription}` \
+             ascription: every built-in type constructor is derivable, so a \
+             consumer can run what the grammar accepts"
+        );
+    }
+    assert!(
+        demo.contains("std::vec::Vec<"),
+        "the demo spells the fully qualified path: only the last path \
+         segment decides (§4.2), so `std::vec::Vec<T>` derives too"
+    );
+    assert!(
+        !demo.contains("VecWitness")
+            && !demo.contains("OptionWitness")
+            && !demo.contains("ResultWitness"),
+        "the demo names no witness identifier: the ascriptions derive every \
+         head, which is the §4.2 posture the demo exists to demonstrate"
+    );
+    assert!(
+        demo.contains("tracing::"),
+        "the ascribed demo spans its universes like the instrumented demo"
+    );
+    assert!(
+        demo.contains("help"),
+        "the fallible ascribed path carries miette help text, not a bare message"
+    );
+    assert!(
+        demo.contains("--example ascribed_witnesses"),
         "the demo documents its own run line"
     );
 }
