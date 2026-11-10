@@ -4,16 +4,18 @@
 //! composition down to flat, fused imperative loops (see
 //! `docs/ARCHITECTURE.md`). This crate is the user-facing facade: it
 //! re-exports the [`pipeline!`] macro, the runtime layer (witnesses,
-//! split-trait kernels, and the v0.5 strict [`Monad`] unification that
-//! delegates to those kernels) that the macro's generated code calls
-//! into. The runnable consumer demos live in `crates/catheo/examples/`:
-//! `quickstart` (the README snippet), `fallible_pipeline` (the §4.3
-//! traversal boundary), `monadic_surface` (the monadic surface — `join`
-//! and `fold_map`), `strict_monad` (the §4.4 one-trait surface — one
-//! `Monad` bound across every witness), `instrumented_pipeline`
-//! (the observable seam — `tracing` spans around the run, `miette` help
-//! text on the error path; dev-only dependencies that no shipped
-//! artifact links), and `escape_hatches` (the §4.2 escape hatches and
+//! split-trait kernels, the v0.6 partial arrow [`CategoricalFilterMap`],
+//! and the v0.5 strict [`Monad`] unification that delegates to those
+//! kernels) that the macro's generated code calls into. The runnable
+//! consumer demos live in `crates/catheo/examples/`: `quickstart` (the
+//! README snippet), `fallible_pipeline` (the §4.3 traversal boundary),
+//! `monadic_surface` (the monadic surface — `join` and `fold_map`),
+//! `strict_monad` (the §4.4 one-trait surface — one `Monad` bound across
+//! every witness), `instrumented_pipeline` (the observable seam —
+//! `tracing` spans around the run, `miette` help text on the error path;
+//! dev-only dependencies that no shipped artifact links),
+//! `filter_map_pipeline` (the §4.3 v0.6 partial arrow behind the same
+//! observable seam), and `escape_hatches` (the §4.2 escape hatches and
 //! the §6.2 unfused oracle, in the same observable posture).
 //!
 //! ```
@@ -43,9 +45,9 @@ pub mod monad;
 pub mod witness;
 
 pub use categorical::{
-    CategoricalFilter, CategoricalFold, CategoricalFoldMap, CategoricalFunctor,
-    CategoricalIntoIter, CategoricalMonad, CategoricalPointed, CategoricalTraverse, Monoid,
-    kleisli,
+    CategoricalFilter, CategoricalFilterMap, CategoricalFold, CategoricalFoldMap,
+    CategoricalFunctor, CategoricalIntoIter, CategoricalMonad, CategoricalPointed,
+    CategoricalTraverse, Monoid, kleisli,
 };
 pub use catheo_macros::{pipeline, pipeline_unfused};
 pub use hkt::HKT;
