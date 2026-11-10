@@ -19,7 +19,10 @@
 //! the §6.2 unfused oracle, in the same observable posture), and
 //! `kernel_surface` (this runtime layer driven directly — the §2.2
 //! split kernels, the standalone [`kleisli`] composition, and a
-//! user-defined [`Monoid`], no macro in sight).
+//! user-defined [`Monoid`], no macro in sight). The §4.2 hatch matrix —
+//! all six accepted spellings (`map!`, `bind!`, `filter_map!`, each ×
+//! `force`/`materialize`), value-checked across the rows and oracle-paired
+//! — is `hatch_matrix`.
 //!
 //! ```
 //! use catheo::{pipeline, VecWitness};
