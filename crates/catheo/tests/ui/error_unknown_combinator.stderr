@@ -1,4 +1,4 @@
-error: expected one of `map`, `bind!`, `filter`, `filter_map`, `join`, `kleisli`, `traverse`, `fold`, `fold_map`, or `collect`, found `fmap`
+error: expected one of `map`, `map!`, `bind`, `bind!`, `filter`, `filter_map`, `filter_map!`, `join`, `kleisli`, `traverse`, `fold`, `fold_map`, or `collect`, found `fmap`
  --> tests/ui/error_unknown_combinator.rs:7:9
   |
 7 |         fmap: |x| x * 2,
