@@ -50,7 +50,7 @@ fn main() {
 
 The two `map` stages and the `fold` fuse into a single pass; no intermediate `Vec` is built between source and eliminator.
 
-Every snippet in this README is runnable: the demos live in [`crates/catheo/examples`](crates/catheo/examples) — `cargo run -p catheo --example quickstart` (this pipeline), `fallible_pipeline` (the traversal boundary), `monadic_surface` (`join` and `fold_map`), `strict_monad` (the one-trait `Monad` surface across every witness), `instrumented_pipeline` (a `tracing`-spanned run with `miette` help text on the error path), `filter_map_pipeline` (the v0.6 partial arrow behind the same observable seam), `escape_hatches` (the §4.2 hatches and the `pipeline_unfused!` oracle), `kernel_surface` (the §2.2 runtime layer driven directly — kernels, `kleisli`, and a user `Monoid`, no macro in sight), and `hatch_matrix` (the full §4.2 hatch matrix — all six spellings run side by side on the same arrows, oracle-paired, in the same observable posture).
+Every snippet in this README is runnable: the demos live in [`crates/catheo/examples`](crates/catheo/examples) — `cargo run -p catheo --example quickstart` (this pipeline), `fallible_pipeline` (the traversal boundary), `monadic_surface` (`join` and `fold_map`), `strict_monad` (the one-trait `Monad` surface across every witness), `instrumented_pipeline` (a `tracing`-spanned run with `miette` help text on the error path), `filter_map_pipeline` (the v0.6 partial arrow behind the same observable seam), `escape_hatches` (the §4.2 hatches and the `pipeline_unfused!` oracle), `kernel_surface` (the §2.2 runtime layer driven directly — kernels, `kleisli`, and a user `Monoid`, no macro in sight), `hatch_matrix` (the full §4.2 hatch matrix — all six spellings run side by side on the same arrows, oracle-paired, in the same observable posture), and `ascribed_witnesses` (the §4.2 source-ascription surface — every built-in witness derived from the `as` spelling, no `witness:` entry in sight).
 
 ## Features
 
@@ -62,7 +62,7 @@ Every snippet in this README is runnable: the demos live in [`crates/catheo/exam
 - **The partial arrow.** `filter_map:` (v0.6) runs `T -> Option<U>` over the container — std's `filter_map` on `Vec`, `and_then` on `Option` — the shape every lookup/validation/parsing step already has. It fuses under the same producer/consumer rule as `bind` (Rule 2) and absorbs into a pure `fold` (Rule 4), so `map → filter_map` is one pass with zero intermediates — where `filter` is an absolute barrier by design. The §3.2 observer scan is refined for the arrow: `Some`/`None` are its effect constructors, only the shape methods (`.len`/`.iter`/`.is_empty`) block fusion.
 - **One `Monad` to bound on.** The v0.5 strict layer (`crates/catheo/src/monad.rs`) puts `pure` and `bind` in a single trait — with `join` provided and `fmap` derived from `bind ∘ pure` — implemented by every witness and delegating to the split kernels, so a generic program `fn run<M: Monad>(…)` monomorphizes across `Vec`/`Option`/`Result` with the allocation profile pinned equal to the split-kernel spelling (`tests/v05_gates.rs`, `benches/monad.rs`).
 - **Traversal across an effect.** `traverse: (ResultWitness<E>, f)` (v0.3) runs a pointwise effect across the container and collects one effect around a `Vec` — std's short-circuiting `FromIterator` elimination, with the absorbable prefix chained into the traversal's iterator and the suffix folded inside the effect guard. No intermediate container between source and traversal; one traversal boundary per pipeline by grammar.
-- **Witnesses for containers you already use.** `VecWitness`, `OptionWitness`, and `ResultWitness<E>` implement the GAT-based `HKT` layer (`crates/catheo/src/hkt.rs`), or skip the witness entirely: `source: xs as Vec<i32>` derives it from the ascription.
+- **Witnesses for containers you already use.** `VecWitness`, `OptionWitness`, and `ResultWitness<E>` implement the GAT-based `HKT` layer (`crates/catheo/src/hkt.rs`), or skip the witness entirely: `source: xs as Vec<i32>` derives it from the ascription — as do `as Option<T>`, `as Result<T, E>`, and the fully qualified `std::vec::Vec<T>` spelling (only the last path segment decides). The runnable surface: `cargo run -p catheo --example ascribed_witnesses`.
 - **Escape hatches and an oracle.** `bind!: force` and `bind!: materialize` override the conservative fusion analysis in either direction, and `pipeline_unfused!` expands the same grammar without fusion — expanding a suspect pipeline through both macros isolates any mis-rewrite to the fusion pass.
 
 ## How it works
@@ -198,7 +198,7 @@ Witnesses are `VecWitness`, `OptionWitness`, and `ResultWitness<E>` — or none 
 ## Status
 
 > [!NOTE]
-> Catheo is at v0.6.0, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
+> Catheo is at v0.6.1, an early 0.x release: the design is benchmark-gated and the API may still change. CI (`.github/workflows/ci.yml`) runs rustfmt, clippy pedantic at deny with a zero allow-list, and the full test suite on ubuntu-latest; the test job pins rustc 1.99.1 because trybuild snapshots compare diagnostics byte-for-byte. The workspace MSRV is 1.99 (edition 2024). Linux is the platform CI exercises; the shipped crates are pure Rust with `unsafe_code` forbidden — the one exception is the dev-only counting allocator, which no shipped artifact links.
 
 Releases are cut by pushing a `v*.*.*` tag; git-cliff renders the changelog and `release.yml` publishes the GitHub release.
 
@@ -212,13 +212,14 @@ Milestone history, each gate re-applied at its release:
 | v0.4.0 | `join` — the §4.3 monadic multiplication on the pipeline surface; §6.1 gates re-applied (`benches/join.rs`: C ≥ B, C > A) |
 | v0.5.0 | the strict `Monad` layer — the one-trait `pure`/`bind` unification, additive over the split kernels; §6.1 gates re-applied (laws + allocation profile in `tests/v05_gates.rs`, pointwise verdict in `benches/monad.rs`: C ≈ B) |
 | v0.6.0 | `filter_map` — the §4.3.3 partial arrow on the pipeline surface; §6.1 gates re-applied (value + allocation profile in `tests/v06_gates.rs`: C == B exactly, the bind riddle retired; three-way verdict in `benches/filter_map.rs`) |
+| v0.6.1 | the 0.6.1 truth sweep — the §4.2 hatch-matrix demo with its consumer gate and bench, the entry-vocabulary diagnostic, the ui-count truth | maintenance release; consumer + release gates re-pinned |
 
 To verify a checkout locally:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
 cargo bench --bench abc
 ```
 
@@ -235,5 +236,5 @@ The published form of `docs/ARCHITECTURE.md` §7 — read the full document for 
 ## Learn more
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the full design: architectural layers, the fusion rules and their limits, the benchmark protocol, and the roadmap.
-- [crates/catheo/examples](crates/catheo/examples) — the runnable consumer demos: `quickstart`, `fallible_pipeline`, `monadic_surface` (`join` + `fold_map`), `strict_monad` (the §4.4 one-trait `Monad` surface), `instrumented_pipeline` (the observable seam: `tracing` spans + `miette` help text), `filter_map_pipeline` (the §4.3 v0.6 partial arrow behind the same seam), `escape_hatches` (the §4.2 hatches and the `pipeline_unfused!` oracle), `hatch_matrix` (the full §4.2 hatch matrix — all six spellings, value-checked across the rows), and `kernel_surface` (the §2.2 runtime layer without the macro: split kernels, `kleisli`, a user-defined `Monoid`).
+- [crates/catheo/examples](crates/catheo/examples) — the runnable consumer demos: `quickstart`, `fallible_pipeline`, `monadic_surface` (`join` + `fold_map`), `strict_monad` (the §4.4 one-trait `Monad` surface), `instrumented_pipeline` (the observable seam: `tracing` spans + `miette` help text), `filter_map_pipeline` (the §4.3 v0.6 partial arrow behind the same seam), `escape_hatches` (the §4.2 hatches and the `pipeline_unfused!` oracle), `hatch_matrix` (the full §4.2 hatch matrix — all six spellings, value-checked across the rows), `kernel_surface` (the §2.2 runtime layer without the macro: split kernels, `kleisli`, a user-defined `Monoid`), and `ascribed_witnesses` (the §4.2 source-ascription surface — every built-in witness derived from the `as` spelling, no `witness:` entry in sight).
 - [CHANGELOG.md](CHANGELOG.md) — release history, generated by git-cliff from Conventional Commits.
