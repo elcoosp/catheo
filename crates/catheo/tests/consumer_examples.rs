@@ -4,7 +4,7 @@
 //!
 //! A proc-macro library sells a *demonstration* as much as an API: the
 //! crate-level rustdoc points consumers at runnable examples, so this gate
-//! keeps the pointer honest. Eight demos are pinned:
+//! keeps the pointer honest. Nine demos are pinned:
 //!
 //! - `quickstart.rs` — the README quickstart, runnable;
 //! - `fallible_pipeline.rs` — the traversal boundary over a `Result` effect;
@@ -25,6 +25,11 @@
 //! - `filter_map_pipeline.rs` — the §4.3 v0.6 partial arrow: `filter_map`
 //!   pruning the junk records in the fused prefix, the traversal boundary
 //!   validating what it keeps, in the observable seam posture.
+//! - `hatch_matrix.rs` — the §4.2 hatch matrix: all six accepted spellings
+//!   (`map!`, `bind!`, `filter_map!`, each × `force`/`materialize`) run
+//!   side by side on the same arrows, the values asserted equal across the
+//!   matrix, with the `pipeline_unfused!` oracle pairing the forced shapes
+//!   and the v0.6 `filter_map!` rows finally demonstrated.
 //! - `kernel_surface.rs` — the runtime layer *without* the macro: the §2.2
 //!   split kernels (`run_map`, `run_filter_map`, `run_join`,
 //!   `run_traverse`), the standalone `kleisli` composition, and a
@@ -239,6 +244,52 @@ fn the_partial_arrow_demo_carries_the_observable_seam() {
     );
     assert!(
         partial.contains("--example filter_map_pipeline"),
+        "the demo documents its own run line"
+    );
+}
+
+/// The §4.2 hatch matrix has six accepted spellings and the release gate
+/// (`readme_publishes_every_accepted_hatch_spelling`) publishes all of
+/// them — but the v0.6 train demonstrated only three: the `filter_map!`
+/// hatches shipped with the partial arrow and never ran in any demo, and
+/// `map!: materialize` shipped with the v0.2 hatch grammar equally
+/// unrun. This gate pins the runnable truth: one demo carries the whole
+/// matrix, value-checked across the rows, oracle-paired on the forced
+/// shapes, in the house observable seam posture.
+#[test]
+fn the_hatch_matrix_demo_runs_every_accepted_spelling() {
+    let matrix = example("hatch_matrix.rs");
+    for spelling in [
+        "map!: force",
+        "map!: materialize",
+        "bind!: force",
+        "bind!: materialize",
+        "filter_map!: force",
+        "filter_map!: materialize",
+    ] {
+        assert!(
+            matrix.contains(spelling),
+            "the hatch-matrix demo must run the accepted spelling \
+             `{spelling}` (§4.2): the release gate publishes the \
+             six-spelling matrix, so a consumer can run what is published"
+        );
+    }
+    assert!(
+        matrix.contains("pipeline_unfused!"),
+        "the hatch-matrix demo pairs the forced shapes with the §6.2 \
+         unfused oracle — expanding a suspect pipeline through both macros \
+         isolates any mis-rewrite to the fusion pass"
+    );
+    assert!(
+        matrix.contains("tracing::"),
+        "the hatch-matrix demo spans its sections like the instrumented demo"
+    );
+    assert!(
+        matrix.contains("help"),
+        "the fallible path carries miette help text, not a bare message"
+    );
+    assert!(
+        matrix.contains("--example hatch_matrix"),
         "the demo documents its own run line"
     );
 }
