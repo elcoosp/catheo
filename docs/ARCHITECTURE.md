@@ -2,7 +2,7 @@
 
 ## Architecture Specification — v0.1
 
-**Status:** Design-complete for the v0.1 prototype; maintained through the v0.5 release (§4.3.1 traverse, §4.3.2 join, §4.4 the strict `Monad` layer). Benchmark-gated before any public API commitment.
+**Status:** Design-complete for the v0.1 prototype; maintained through the v0.6 release (§4.3.1 traverse, §4.3.2 join, §4.4 the strict `Monad` layer, §4.3.3 the partial arrow). Benchmark-gated before any public API commitment.
 **Scope:** A proc-macro-backed categorical pipeline library with a syntax-directed compilation engine and an imperative execution core. Zero-cost on the fast path; explicit fallback otherwise.
 
 ---
@@ -186,6 +186,8 @@ Both checks live in the `observer` module (`crates/catheo-parser/src/observer.rs
 
 This is a **syntax-level conservative approximation**, not semantic analysis. It may produce false positives (rejecting a fusion that would have been safe). False positives are acceptable; false negatives are not. The user can override with an explicit escape hatch (see §4.2).
 
+Since v0.6 the scan is **kind-aware for the partial arrow** (`filter_map`, §4.3.3): a `filter_map` arrow lands in `Option`, so its `Some`/`None` tokens are the arrow's *effect constructors* — flattened away by the kernel before anything downstream could observe them — and scanning them would flag every idiomatic spelling as a barrier (a false positive the stage could never recover from). The partial-arrow scan (`crates/catheo-parser/src/observer.rs::is_partial_arrow_observer`) keeps the method idents (`.len`, `.is_empty`, `.iter`) and drops the constructor idents; the composed-body rescan in the deforestation pass applies the same refinement when an upstream producer absorbs into a partial arrow. The soundness argument is unchanged: a closure whose body never mentions the shape methods cannot inspect the container it is fed.
+
 ### 3.3 Deforestation Pass (Linear-Time TRS)
 
 The pass walks the `Vec<Stage>` once, in `O(N)` time, applying four syntax-directed rewrite rules. The weakly-cartesian property of the monad is the **correctness argument** for the rewrites; the implementation is a straightforward pattern-match loop.
@@ -276,6 +278,7 @@ let result = pipeline! {
 | `map` | v0.1 | Functor operation; fusion target |
 | `bind` | v0.1 | Monadic sequence; the hard case |
 | `filter` | v0.1 | Absolute barrier; no fusion |
+| `filter_map` | v0.6 | The partial arrow (§4.3.3); bind-shaped fusion, the methods-only scan |
 | `fold` | v0.1 | Universal eliminator; absorbs pure prefixes |
 | `pure` | v0.1 | Runtime kernel only — `CategoricalPointed::run_pure` (§2.2, the pointed layer); never a pipeline stage keyword |
 | `join` | v0.4 | Bare-keyword stage; desugars to `bind(id)` (§4.3.2) |
@@ -336,6 +339,16 @@ The runtime layer is the *eager* monad semantics, by design (§2.3): each `bind`
 
 Validation: `tests/v05_gates.rs` pins the monad laws per witness over the xorshift sweep, the derived/provided kernels against the split layer, three-way value agreement, and the allocation profile (deterministic, §6.1 style); `benches/monad.rs` re-applies the §6.1 three-way protocol over the pointwise universes — warm and cold, `Option` and `Result`: C ≈ B within noise on every universe (the bound erases under monomorphization). The runnable consumer demonstration, with the observable seam, is `examples/strict_monad.rs`.
 
+#### 4.3.3 The Partial Arrow (v0.6)
+
+§4.3's grammar carried a hole on the seam between the total arrow (`map:`) and the container-to-container arrow (`bind:`): the most idiomatic Rust arrow of all — the *partial* arrow `T -> Option<U>` — had no spelling. The only workaround was the riddle: hand-rolling the arrow through the `bind` kernel with a per-element re-collect (`bind: |x| f(x).into_iter().collect::<Vec<_>>()`), a shape that contradicts the §6.2 posture on the positive surface and allocates a container per kept element. v0.6 closes the seam with `filter_map:` — the kernel the ecosystem already names: std's `filter_map` on `Vec`, `and_then` on `Option`.
+
+The categorical reading is the pointed-arrow translation: a bind whose arrow lands in the pointed sub-effect `Option` instead of the witness's own container, flattened by construction (`Option: IntoIterator`, so the kernel *is* std's `filter_map` elimination — `into_iter(xs).filter_map(f).collect()`). That makes the fusion story Rule 2 verbatim: `map(f) → filter_map(g)` composes by application into one adapter pass, Rule 4 absorbs a non-observing partial arrow into a pure `fold`, and the stage rides the absorbable suffix and the traversal's prefix chain exactly like a bind. Where `filter` is an absolute barrier by design (Rule 3), `filter_map` delivers the filter+map *semantics* with bind's fusion *discipline* — the pre-v0.6 filter+map spelling paid a barrier, a container, and a pass; the partial arrow pays neither.
+
+Two boundaries keep the surface honest, mirroring the `filter` posture: `ResultWitness<E>` has **no** kernel impl (a dropped `Ok` has no error-free denotation — a fabricated `Err` would be a value the user never produced), so a `filter_map` over that witness is an `E0277` spanned at the witness token; and the §3.2 scan is kind-aware — the arrow's `Some`/`None` constructors are its effect, so only the shape methods (`.len`, `.is_empty`, `.iter`) flag the stage as an observing barrier (the §4.2 hatches apply: `filter_map!: force` overrides the methods scan, `filter_map!: materialize` pins the intermediate).
+
+Validation: `tests/v06_gates.rs` pins the kernel against the std eliminations, three-way value agreement over the sweep (A the riddle, B the idiomatic chain, C the pipeline), the allocation profile (C == B exactly — zero intermediates; A allocates per kept element — the riddle retired), the scan refinement (the inline constructor spelling still fuses; `.iter` still barriers), and fused == unfused oracle agreement over every admitted shape (deterministic, §6.1 style). `benches/filter_map.rs` re-applies the §6.1 three-way protocol — the verdict is in §6.1. The runnable consumer demonstration, with the observable seam, is `examples/filter_map_pipeline.rs`.
+
 ---
 
 ## 5. Compiler Constraints and Mitigations
@@ -385,6 +398,8 @@ Success criterion for v0.1: **C ≥ B** on all pipelines, and **C > A** on at le
 
 **v0.5 record (the strict Monad layer).** The §8 v0.5 gate re-applied the protocol over `benches/monad.rs` — the pointwise universes (`Option` warm/cold, `Result` warm/cold, per-call): C ≈ B within noise on every universe (all four A/B/C routines land in the same ~1.1 ns warm / ~2.0 ns cold band), and C ≈ A — the one-trait bound erases under monomorphization, leaving B's spelling. The eager `Vec` shape publishes its floor deterministically instead of by wall-clock: `tests/v05_gates.rs` pins strict == split-kernel allocation counts exactly (the abstraction adds nothing over the kernels), the pointwise strict chain == the idiomatic one-pass chain, and the C > B/C > A eager gap is asserted with its §2.3 rationale — the fused answer lives in the macro pass (§4.4).
 
+**v0.6 record (the partial arrow).** The §8 v0.6 gate re-applied the protocol over `benches/filter_map.rs`. The container universes (`Vec<i32>`, the evens-kept `partial_double` arrow, a pure fold terminal, 10k/100k/1M): C within ±1.5% of B on every size (10k −0.8%, 100k +0.6%, 1M +1.5% — the kernel *is* the B spelling, so the deltas are per-binary code layout), and A — the pre-v0.6 bind riddle — 15.9–23.4× slower, the per-element container materialization the stage retires. The pointwise universes (`Option` warm/cold, per-call) land in the same ~1.12 ns band across A/B/C: on a zero-or-one-element container the naive match spelling *is* the idiomatic one, and the stage erases into `and_then`. The deterministic consequences (C == B allocations exactly, the riddle's per-element profile, the scan-refinement shapes) are pinned in `tests/v06_gates.rs`.
+
 Additional benchmarks:
 
 - **`Result`-chain error handling**: 10-stage `bind`-heavy pipeline, cold and warm.
@@ -432,6 +447,7 @@ Pipelines exceeding the token budget fall back to the sequential lowering — by
 | **v0.3** | `traverse` — two-sided boundary discipline, `CategoricalTraverse` kernel | §6.1 gates re-applied; cold re-examination recorded (§6.1) |
 | **v0.4** | `join` — the §4.3 monadic multiplication on the pipeline surface | §6.1 gates re-applied (deterministic forms in `tests/v04_gates.rs`) |
 | **v0.5** | the strict `Monad` layer — the §2.4/§4.4 one-trait unification, additive | §6.1 gates re-applied (laws + allocation profile in `tests/v05_gates.rs`; pointwise verdict in `benches/monad.rs`); surface migration still tracked against `-Znext-solver` |
+| **v0.6** | `filter_map` — the §4.3.3 partial arrow, additive over the kernel set | §6.1 gates re-applied (value + allocation profile in `tests/v06_gates.rs`; three-way verdict in `benches/filter_map.rs`: C ≈ B, C > A) |
 
 **M3 is the decision gate.** If the macro-flattened output does not match idiomatic iterator chains on at least the map-heavy and fold-heavy pipelines, the architecture returns to design review. No public API is committed until M3 passes.
 
