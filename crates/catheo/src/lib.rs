@@ -16,9 +16,11 @@
 //! dev-only dependencies that no shipped artifact links),
 //! `filter_map_pipeline` (the §4.3 v0.6 partial arrow behind the same
 //! observable seam), `escape_hatches` (the §4.2 escape hatches and
-//! the §6.2 unfused oracle, in the same observable posture), and
-//! `kernel_surface` (this runtime layer driven directly — the §2.2
-//! split kernels, the standalone [`kleisli`] composition, and a
+//! the §6.2 unfused oracle, in the same observable posture),
+//! `ascribed_witnesses` (the §4.2 source-ascription surface — every
+//! built-in witness derived from the `as` spelling, no `witness:` entry
+//! anywhere), and `kernel_surface` (this runtime layer driven directly —
+//! the §2.2 split kernels, the standalone [`kleisli`] composition, and a
 //! user-defined [`Monoid`], no macro in sight). The §4.2 hatch matrix —
 //! all six accepted spellings (`map!`, `bind!`, `filter_map!`, each ×
 //! `force`/`materialize`), value-checked across the rows and oracle-paired
