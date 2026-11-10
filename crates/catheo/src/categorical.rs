@@ -78,6 +78,30 @@ pub trait CategoricalFilter: CategoricalFunctor {
         P: Fn(&T) -> bool;
 }
 
+/// The partial arrow (§4.3 v0.6 `filter_map`): element-to-`Option`
+/// transformation, the dropped arms flattened away.
+///
+/// Where [`CategoricalFunctor`] carries the total arrow `T -> U` and
+/// [`CategoricalMonad`] the container-to-container arrow `T -> W::Type<U>`,
+/// the partial arrow lands in the pointed sub-effect: `f: T -> Option<U>`.
+/// That is the shape every hand-written lookup/validation/parsing step
+/// already has, and the kernel lowers it to the idiomatic eliminations —
+/// std's `filter_map` on `Vec`, `and_then` on `Option` — so the stage *is*
+/// the B-parity spelling by construction (§6.1).
+///
+/// Implemented for `VecWitness` and `OptionWitness` only, mirroring
+/// [`CategoricalFilter`]: dropping an `Ok` has no error-free denotation —
+/// a `filter_map` arrow over `ResultWitness<E>` would have to fabricate an
+/// `Err` value the user never produced, so a `filter_map` stage over that
+/// witness is a compile error (`E0277` at the witness token, the same
+/// spanned posture as `filter`).
+pub trait CategoricalFilterMap: HKT {
+    /// Apply the partial arrow `f` to every element and drop the `None`s.
+    fn run_filter_map<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
+    where
+        F: FnMut(T) -> Option<U>;
+}
+
 /// Universal eliminator: consume the container into a single value.
 pub trait CategoricalFold: HKT {
     /// Left-fold the elements into the accumulator `init`.
@@ -302,6 +326,17 @@ impl CategoricalFilter for VecWitness {
     }
 }
 
+impl CategoricalFilterMap for VecWitness {
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_filter_map<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
+    where
+        F: FnMut(T) -> Option<U>,
+    {
+        container.into_iter().filter_map(f).collect()
+    }
+}
+
 impl CategoricalFold for VecWitness {
     #[expect(clippy::inline_always)]
     #[inline(always)]
@@ -378,6 +413,19 @@ impl CategoricalFilter for OptionWitness {
         P: Fn(&T) -> bool,
     {
         container.filter(p)
+    }
+}
+
+impl CategoricalFilterMap for OptionWitness {
+    // `filter_map` on a zero-or-one-element container *is* `and_then` —
+    // the idiomatic one-discriminant elimination (the §6.1 M4 posture).
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn run_filter_map<T, U, F>(container: Self::Type<T>, f: F) -> Self::Type<U>
+    where
+        F: FnMut(T) -> Option<U>,
+    {
+        container.and_then(f)
     }
 }
 
