@@ -4,7 +4,8 @@
 //! - Closures are parsed as **raw `TokenStream`** bodies — never
 //!   `syn::Expr` — so interpretation cost stays zero for the parts the
 //!   compiler does not understand (§5.3). Only the closure *header* is
-//!   validated (exactly one identifier parameter).
+//!   validated, at the entry's arity: one identifier parameter for the
+//!   stage combinators, two for `fold`'s `Fn(A, T) -> A` (§3.1).
 //! - Keywords are `syn::custom_keyword!` types, avoiding string comparison
 //!   in the hot parse path (§3.1).
 //! - Barrier decisions are made **at parse time** (§3.2): each `Stage`
@@ -1119,12 +1120,16 @@ impl Closure {
         }
 
         let arity_word = if arity == 1 { "one" } else { "two" };
+        // The noun pluralizes with the arity: `fold`'s two-parameter shape
+        // reads "exactly two parameters", the stage shape "exactly one
+        // parameter" (the §6.2 posture — a rejection is never a riddle).
+        let arity_noun = if arity == 1 { "parameter" } else { "parameters" };
         let _open: Token![|] = input.parse()?;
         if input.peek(Token![|]) {
             let empty: Token![|] = input.parse()?;
             return Err(syn::Error::new(
                 empty.span(),
-                format!("pipeline closures take exactly {arity_word} parameter; found none"),
+                format!("pipeline closures take exactly {arity_word} {arity_noun}; found none"),
             ));
         }
         let mut params = Vec::with_capacity(arity);
@@ -1165,7 +1170,7 @@ impl Closure {
             return Err(syn::Error::new(
                 comma.span(),
                 format!(
-                    "pipeline closures take exactly {arity_word} parameter; expected closing `|`"
+                    "pipeline closures take exactly {arity_word} {arity_noun}; expected closing `|`"
                 ),
             ));
         }
@@ -1173,7 +1178,7 @@ impl Closure {
             syn::Error::new(
                 next_span(input),
                 format!(
-                    "pipeline closures take exactly {arity_word} parameter; expected closing `|`"
+                    "pipeline closures take exactly {arity_word} {arity_noun}; expected closing `|`"
                 ),
             )
         })?;
