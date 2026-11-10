@@ -181,7 +181,7 @@ hot parse path.
 
 Barrier decisions are made **at parse time**, not in a separate pass. Each `Stage` carries two flags:
 
-- `fusion_barrier` — `true` for `Filter` (absolute barrier) and for `Bind` whose closure is a structural observer.
+- `fusion_barrier` — `true` for `Filter` (absolute barrier), for a `Bind` whose closure is a structural observer, for a `FilterMap` whose closure observes shape by the kind-aware methods-only scan (below), for every `Materialize` stage (§4.2), and for the `Traverse` boundary (§4.3.1).
 - `structural_observer` — a conservative lexical approximation: the closure's token text contains `.len`, `.is_empty`, `.iter`, `Some`, `None`, `Ok`, or `Err`.
 
 Both checks live in the `observer` module (`crates/catheo-parser/src/observer.rs`): `is_structural_observer` (the dot-method and constructor scan) and `is_lexically_pure` (the `&mut` scan feeding Rule 4's `is_pure`).
@@ -270,7 +270,7 @@ let result = pipeline! {
 ### 4.2 Escape Hatches
 
 - **Forced fusion past a false-positive observer:** `map!: force` / `bind!: force` — an explicit marker that suppresses the `structural_observer` flag for that stage. Documented as unsound if the closure actually observes structure.
-- **Type ascription at source:** `source: input as Vec<i32>` — the macro derives `VecWitness` automatically, for users who prefer not to name witnesses.
+- **Type ascription at source:** `source: input as Vec<i32>` — the macro derives the head witness automatically, for users who prefer not to name witnesses. Every built-in derives: `Vec<T>`, `Option<T>`, and `Result<T, E>` with both type arguments ascribed; only the *last* path segment decides, so the fully qualified `std::vec::Vec<T>` spelling derives too. The runnable demonstration is `examples/ascribed_witnesses.rs`.
 - **Fallback to materialized semantics:** `bind!: materialize` forces an intermediate container, useful when the optimizer's fusion interacts badly with user code (e.g., when a later stage relies on `Vec`'s capacity or ordering guarantees that fusion would obscure).
 
 ### 4.3 Combinator Set (v0.1)
@@ -287,6 +287,7 @@ let result = pipeline! {
 | Kleisli `>=>` | v0.2 | Desugars to nested bind; fusion pass extended |
 | `traverse` | v0.3 | Traversable eliminator; two-sided boundary discipline (§4.3.1) |
 | `fold_map` | v0.2 | Fused eliminator; needs its own kernel |
+| `collect` | v0.1 | Terminal: evaluate to the resulting container; the trailing barrier-free run chains into it |
 
 #### 4.3.1 The Traversal Boundary (v0.3)
 
@@ -413,7 +414,7 @@ Additional benchmarks:
 - Valid pipelines compile.
 - Malformed pipelines (missing witness, mismatched closure arity, unsupported combinator) produce spanned errors pointing to the offending token.
 - Fusion rules preserve semantics: property-based tests over `Vec`, `Option`, `Result` witnesses comparing fused and unfused execution on randomized inputs.
-- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`, `examples/escape_hatches.rs`, `examples/filter_map_pipeline.rs`, `examples/hatch_matrix.rs`, `examples/kernel_surface.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`). The §4.2 hatch matrix — all six accepted spellings — is demonstrated by `examples/hatch_matrix.rs`, value-checked across the rows (`tests/consumer_examples.rs::the_hatch_matrix_demo_runs_every_accepted_spelling`) and measured by `benches/hatches.rs` (§6.1).
+- The consumer-facing diagnostic posture ("a rejection is never a riddle") is carried by the runnable demos: `miette` help text on every error path (`examples/instrumented_pipeline.rs`, `examples/monadic_surface.rs`, `examples/strict_monad.rs`, `examples/escape_hatches.rs`, `examples/ascribed_witnesses.rs`, `examples/filter_map_pipeline.rs`, `examples/hatch_matrix.rs`, `examples/kernel_surface.rs`), pinned by the consumer-surface gate (`tests/consumer_examples.rs`). The §4.2 hatch matrix — all six accepted spellings — is demonstrated by `examples/hatch_matrix.rs`, value-checked across the rows (`tests/consumer_examples.rs::the_hatch_matrix_demo_runs_every_accepted_spelling`) and measured by `benches/hatches.rs` (§6.1).
 
 ### 6.3 Expansion Budget
 
