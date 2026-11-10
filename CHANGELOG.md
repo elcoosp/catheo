@@ -77,36 +77,6 @@ are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 - *(release)* Bump the workspace to 0.6.0
 - *(release)* Gitignore the ship manifest
 
-## [0.6.0] - 2026-11-10
-
-### 🚀 Features
-
-- *(runtime)* The §4.3.3 partial-arrow kernel (`CategoricalFilterMap`) — std's `filter_map` on `Vec`, `and_then` on `Option`; no impl for `ResultWitness<E>` (a dropped `Ok` has no error-free denotation), and the facade exports the trait
-- *(parser)* The `filter_map` stage grammar — `StageKind::FilterMap` joins the grammar, the `filter_map:` entry with the §4.2 hatches, the methods-only §3.2 scan (the arrow's `Some`/`None` are its effect constructors, not an observation), and the kind-aware stage flags
-- *(fuse)* Rule 2 pairs a map into the partial arrow; the composed-body rescan applies the refined scan
-- *(codegen)* The partial arrow lowers at its std position — `.filter_map`/`.and_then` in adapter chains, the B-parity spelling by construction
-
-### 🧪 Testing
-
-- *(v0.6)* The partial-arrow deterministic gates: the kernel pinned against the std eliminations, three-way value agreement over the xorshift sweep, the allocation profile (C == B exactly — the bind riddle retired), the scan refinement, and fused == unfused oracle agreement
-- *(ui)* The partial-arrow cases: compile-pass coverage and the spanned rejections (`ResultWitness` is rejected at the witness token), the rejection snapshot pinned
-- *(examples)* Pin the partial-arrow consumer gate
-- *(release)* The publication contract covers 0.5.1
-
-### 📈 Benchmarks
-
-- *(filter_map)* The §6.1 v0.6 three-way suite — container and pointwise universes; C within ±1.5% of B, the pre-v0.6 bind riddle 15.9–23.4× slower (the verdict recorded in ARCHITECTURE.md §6.1)
-
-### 📚 Documentation
-
-- *(architecture)* §4.3.3 the partial arrow; the §6.1 v0.6 verdict and the delivered roadmap row
-- *(readme)* The v0.6.0 milestone row and the partial-arrow feature bullet
-- *(examples)* The partial-arrow consumer demo
-
-### ⚙️ Continuous Integration
-
-- Smoke the filter_map bench as the ninth target
-
 ## [0.5.1] - 2026-11-09
 
 ### 🐛 Bug Fixes
