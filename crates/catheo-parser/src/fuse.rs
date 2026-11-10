@@ -23,12 +23,13 @@
 //! of user identifiers.
 //!
 //! Barriers are uniform. Per §3.2 a stage with `fusion_barrier` (every
-//! `Filter`, and every `Bind` whose closure is a structural observer)
-//! blocks upstream fusion: Rule 2 refuses to compose *into* such a bind,
+//! `Filter`, every observing `Bind`, and every observing `FilterMap`)
+//! blocks upstream fusion: Rule 2 refuses to compose *into* such a stage,
 //! and Rule 4's absorption stops at such a stage. False positives are
 //! acceptable; false negatives are not.
 
 use crate::ast::{Closure, Param, Stage, StageKind, StageModifier};
+use crate::observer::is_partial_arrow_observer;
 use proc_macro2::Span;
 use quote::{format_ident, quote_spanned};
 
@@ -83,13 +84,19 @@ pub fn fuse_components(stages: &[Stage]) -> Vec<FusedStage<'_>> {
             continue;
         }
         // Rule 1: Map(f) → Map(g), unconditional.
-        // Rule 2: Map(f) → Bind(h) with h not a structural observer — the
-        // barrier check above already rejected observing binds, so a Bind
+        // Rule 2: Map(f) → consumer with a non-observing body — a `Bind`
+        // (Chin's producer/consumer) or, since v0.6, the partial arrow of a
+        // `FilterMap`: both are elementwise consumers, so absorbing the
+        // producer into the argument position is sound. The barrier check
+        // above already rejected observing consumers, so a consumer
         // reaching this point fuses. The fused stage takes the consumer's
         // kind, so a Map→Map→Bind chain applies Rule 1 twice, then Rule 2.
         if let Some(last) = fused.last_mut()
             && last.kind == StageKind::Map
-            && matches!(stage.kind, StageKind::Map | StageKind::Bind)
+            && matches!(
+                stage.kind,
+                StageKind::Map | StageKind::Bind | StageKind::FilterMap
+            )
         {
             last.kind = stage.kind;
             last.span = stage.span;
@@ -97,17 +104,23 @@ pub fn fuse_components(stages: &[Stage]) -> Vec<FusedStage<'_>> {
             // Recompute the flags lexically over the composed body: the
             // composition embeds a superset of both bodies, so the rescan
             // can only ever *add* observations (a false positive at worst,
-            // never a false negative — §3.2). Only Binds carry the flag.
-            if stage.kind == StageKind::Bind {
+            // never a false negative — §3.2). Only the consumer kinds carry
+            // the flag, and the scan is the kind's own: the §3.2 full scan
+            // for a Bind, the §4.3 v0.6 methods-only refinement for a
+            // FilterMap (whose constructors are the effect).
+            if stage.kind != StageKind::Map {
                 let body = composed_body(last.callables.iter().copied());
-                last.structural_observer = crate::observer::is_structural_observer(&body);
+                last.structural_observer = match stage.kind {
+                    StageKind::FilterMap => is_partial_arrow_observer(&body),
+                    _ => crate::observer::is_structural_observer(&body),
+                };
                 last.fusion_barrier = last.structural_observer;
             }
             continue;
         }
-        // No rule pairs Bind→* or Filter→*: push as-is. Each stage is
-        // visited exactly once and each fusion mutates `last` in place,
-        // so the walk is O(N) in the stage count (§5.3).
+        // No rule pairs Bind→*, FilterMap→* or Filter→*: push as-is. Each
+        // stage is visited exactly once and each fusion mutates `last` in
+        // place, so the walk is O(N) in the stage count (§5.3).
         fused.push(FusedStage {
             kind: stage.kind,
             span: stage.span,
