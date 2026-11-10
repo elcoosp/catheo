@@ -28,7 +28,7 @@
 //! attempt: adapter-chain absorption over `option::IntoIter`/
 //! `result::IntoIter` measured 1.2–2.7× slower than B; the responsible
 //! lowering was re-examined and revised — see `catheo-parser`'s codegen
-//! module and the README's "M4 notes".)
+//! module and docs/ARCHITECTURE.md §6.1.)
 //!
 //! Each pipeline processes one `Result`/`Option` element, so the suite
 //! streams a §6.1-sized universe of elements through the chain per
