@@ -68,7 +68,7 @@
 //! trailing barrier-free run stays at the sequential-kernel shape —
 //! binds as `run_bind` kernels, the fold terminal as `run_fold` — and
 //! `pipeline!` then emits byte-for-byte the idiomatic spelling, measured
-//! at parity (README, "M4 notes").
+//! at parity (docs/ARCHITECTURE.md §6.1).
 //!
 //! The dispatch is on the head witness *spelling* (a `syn::Path`, so
 //! `ResultWitness<E>` parses and matches; aliases and custom witnesses do
@@ -513,8 +513,9 @@ fn effect_guard(
 }
 
 /// Render a run of non-barrier stages as chained `Fn`-bounded adapters:
-/// producers become `.map`, binds become `.flat_map` (`.filter` never
-/// appears — filters are barriers and stay in the sequential prefix).
+/// producers become `.map`, binds become `.flat_map`, and the partial
+/// arrows become `.filter_map` (`.filter` never appears — filters are
+/// barriers and stay in the sequential prefix).
 ///
 /// The §4.3 `join` identity is the one exception. As the final callable of
 /// a Bind component it lowers to std's `.flatten()` — value-identical to
@@ -539,10 +540,18 @@ fn chain_adapters(stages: &[Stage]) -> TokenStream {
         // With the join identity closing the component, the callable
         // feeding it takes the `.flat_map` position and the identity
         // itself lowers away (`.flatten()` when it is the only callable).
-        let flat_map_index = if join_identity_tail {
+        let consumer_index = if join_identity_tail {
             last.saturating_sub(1)
         } else {
             last
+        };
+        // The consumer's adapter position: a bind flattens, the §4.3 v0.6
+        // partial arrow filter-maps at its std position (the fused output
+        // *is* the idiomatic `.filter_map` spelling), everything else maps.
+        let consumer_method = match component.kind {
+            StageKind::Bind => quote! { flat_map },
+            StageKind::FilterMap => quote! { filter_map },
+            _ => quote! { map },
         };
         for (index, callable) in component.callables.iter().enumerate() {
             if join_identity_tail && index == last {
@@ -552,8 +561,8 @@ fn chain_adapters(stages: &[Stage]) -> TokenStream {
                 continue;
             }
             let call = callable.to_callable_tokens();
-            if component.kind == StageKind::Bind && index == flat_map_index {
-                chain.extend(quote_spanned! {callable.span=> . flat_map (#call)});
+            if index == consumer_index {
+                chain.extend(quote_spanned! {callable.span=> . #consumer_method (#call)});
             } else {
                 chain.extend(quote_spanned! {callable.span=> . map (#call)});
             }
@@ -567,6 +576,7 @@ fn kernel_trait(kind: StageKind) -> TokenStream {
         StageKind::Map => quote! { ::catheo::CategoricalFunctor },
         StageKind::Bind => quote! { ::catheo::CategoricalMonad },
         StageKind::Filter => quote! { ::catheo::CategoricalFilter },
+        StageKind::FilterMap => quote! { ::catheo::CategoricalFilterMap },
         // Traversal stages lower through [`emit_traversal`] — the boundary
         // splits the emission and is never a kernel binding.
         StageKind::Traverse => {
@@ -580,6 +590,7 @@ fn kernel_method(kind: StageKind) -> TokenStream {
         StageKind::Map => quote! { run_map },
         StageKind::Bind => quote! { run_bind },
         StageKind::Filter => quote! { run_filter },
+        StageKind::FilterMap => quote! { run_filter_map },
         StageKind::Traverse => {
             unreachable!("traverse stages are the emission boundary, not kernels")
         }
