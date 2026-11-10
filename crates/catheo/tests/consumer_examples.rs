@@ -4,7 +4,7 @@
 //!
 //! A proc-macro library sells a *demonstration* as much as an API: the
 //! crate-level rustdoc points consumers at runnable examples, so this gate
-//! keeps the pointer honest. Seven demos are pinned:
+//! keeps the pointer honest. Eight demos are pinned:
 //!
 //! - `quickstart.rs` — the README quickstart, runnable;
 //! - `fallible_pipeline.rs` — the traversal boundary over a `Result` effect;
@@ -25,6 +25,10 @@
 //! - `filter_map_pipeline.rs` — the §4.3 v0.6 partial arrow: `filter_map`
 //!   pruning the junk records in the fused prefix, the traversal boundary
 //!   validating what it keeps, in the observable seam posture.
+//! - `kernel_surface.rs` — the runtime layer *without* the macro: the §2.2
+//!   split kernels (`run_map`, `run_filter_map`, `run_join`,
+//!   `run_traverse`), the standalone `kleisli` composition, and a
+//!   user-defined `Monoid`, in the observable seam posture.
 //!
 //! plus the README and the crate rustdoc must both link the directory.
 
@@ -235,6 +239,43 @@ fn the_partial_arrow_demo_carries_the_observable_seam() {
     );
     assert!(
         partial.contains("--example filter_map_pipeline"),
+        "the demo documents its own run line"
+    );
+}
+
+#[test]
+fn the_kernel_surface_demo_carries_the_runtime_layer() {
+    let kernels = example("kernel_surface.rs");
+    assert!(
+        kernels.contains("run_map") && kernels.contains("run_filter_map"),
+        "the demo drives the §2.2 split kernels directly — the functor \
+         arrow and the v0.6 partial arrow, no macro in sight"
+    );
+    assert!(
+        kernels.contains("run_join") && kernels.contains("run_traverse"),
+        "the demo covers the monadic multiplication and the traversal \
+         boundary as plain trait calls"
+    );
+    assert!(
+        kernels.contains("kleisli("),
+        "the demo composes with the standalone `catheo::kleisli` the \
+         README advertises but no demo ever ran"
+    );
+    assert!(
+        kernels.contains("impl Monoid"),
+        "the demo implements `Monoid` for a user type — the \
+         \"eliminates into any Monoid\" promise, substantiated"
+    );
+    assert!(
+        kernels.contains("tracing::"),
+        "the kernel demo spans its sections like the instrumented demo"
+    );
+    assert!(
+        kernels.contains("help"),
+        "the fallible kernel path carries miette help text, not a bare message"
+    );
+    assert!(
+        kernels.contains("--example kernel_surface"),
         "the demo documents its own run line"
     );
 }
