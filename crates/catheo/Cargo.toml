@@ -57,3 +57,6 @@ harness = false
 [[bench]]
 name = "monad"
 harness = false
+[[bench]]
+name = "filter_map"
+harness = false
