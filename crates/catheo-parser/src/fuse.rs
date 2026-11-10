@@ -162,7 +162,14 @@ pub fn absorbable_suffix(stages: &[Stage]) -> usize {
         .count()
 }
 
-/// [`absorbable_suffix`] over the component view (what codegen consumes).
+/// [`absorbable_suffix`] over the component view — the Rule-4 parity
+/// oracle. Codegen pairs [`FusedStage`] components with
+/// [`absorbable_suffix`] over the *stage* view (see `crate::codegen`'s
+/// suffix decisions); this function answers the same question over the
+/// components, and the lockstep spec
+/// (`absorbable_components_match_absorbable_suffix`) pins both views to
+/// the same suffix so the two answers cannot drift apart. It is the
+/// component-view statement of the rule, not a second lowering path.
 #[must_use]
 pub fn absorbable_components(components: &[FusedStage<'_>]) -> usize {
     components
