@@ -17,9 +17,9 @@ use crate::ast::{
     Closure, JOIN_PARAM, Param, Pipeline, Source, Stage, StageKind, StageModifier, Terminal,
     Witness, witness_from_type,
 };
-use crate::observer::{is_lexically_pure, is_structural_observer};
+use crate::observer::{is_lexically_pure, is_partial_arrow_observer, is_structural_observer};
 use proc_macro2::{Span, TokenStream, TokenTree};
-use quote::{ToTokens, format_ident, quote_spanned};
+use quote::{format_ident, quote_spanned};
 use syn::Token;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::spanned::Spanned;
@@ -32,6 +32,7 @@ mod kw {
     syn::custom_keyword!(map);
     syn::custom_keyword!(bind);
     syn::custom_keyword!(filter);
+    syn::custom_keyword!(filter_map);
     syn::custom_keyword!(join);
     syn::custom_keyword!(fold);
     syn::custom_keyword!(collect);
@@ -48,13 +49,14 @@ mod kw {
 
 // Entry keywords that terminate an opaque raw-token capture (closure body,
 // source expression): `witness`, `source`, `map`, `bind`, `filter`, `fold`,
-// `collect`, plus the v0.2 `kleisli` and `fold_map` and the v0.4 `join`. A top-level `ident:`
+// `collect`, plus the v0.2 `kleisli` and `fold_map`, the v0.4 `join`, and
+// the v0.6 `filter_map`. A top-level `ident:`
 // sequence naming one of these always starts the next pipeline entry, so a
 // missing comma between entries is reported instead of being silently
-// swallowed by a greedy capture. A `map!`/`bind!` escape hatch (§4.2)
-// starts with the same ident followed by `!`, which the capture boundary
-// also honors. The list lives in [`is_boundary_keyword`] as an explicit
-// short-circuit chain — no table scan on the hot parse path.
+// swallowed by a greedy capture. A `map!`/`bind!`/`filter_map!` escape hatch
+// (§4.2) starts with the same ident followed by `!`, which the capture
+// boundary also honors. The list lives in [`is_boundary_keyword`] as an
+// explicit short-circuit chain — no table scan on the hot parse path.
 
 /// Parse a `pipeline! { ... }` token stream into a [`Pipeline`].
 ///
@@ -203,17 +205,17 @@ fn parse_entry(
         return Err(head_entry_error(kw.span(), "source"));
     }
 
+    // The stage-vs-terminal position guard ([`stage_below_terminal`], §6.2):
+    // every non-terminal entry below a terminal is rejected spanned at its
+    // own keyword. The terminals use [`duplicate_terminal_error`].
+
     if input.peek(kw::map) {
         let kw: kw::map = input.parse()?;
-        if terminal_seen {
-            return Err(after_terminal_error(kw.span(), "map"));
-        }
+        stage_below_terminal(kw.span(), terminal_seen, "map")?;
         stages.push(parse_hatchable_stage(StageKind::Map, kw.span(), input)?);
     } else if input.peek(kw::bind) {
         let kw: kw::bind = input.parse()?;
-        if terminal_seen {
-            return Err(after_terminal_error(kw.span(), "bind"));
-        }
+        stage_below_terminal(kw.span(), terminal_seen, "bind")?;
         stages.push(parse_hatchable_stage(StageKind::Bind, kw.span(), input)?);
     } else if input.peek(kw::filter) {
         let kw: kw::filter = input.parse()?;
@@ -225,19 +227,23 @@ fn parse_entry(
                  fusion barrier (§3.3 Rule 3); no escape hatch applies",
             ));
         }
-        if terminal_seen {
-            return Err(after_terminal_error(kw.span(), "filter"));
-        }
+        stage_below_terminal(kw.span(), terminal_seen, "filter")?;
         stages.push(parse_stage(StageKind::Filter, kw.span(), input)?);
+    } else if input.peek(kw::filter_map) {
+        let kw: kw::filter_map = input.parse()?;
+        stage_below_terminal(kw.span(), terminal_seen, "filter_map")?;
+        stages.push(parse_hatchable_stage(
+            StageKind::FilterMap,
+            kw.span(),
+            input,
+        )?);
     } else if input.peek(kw::join) {
         let kw: kw::join = input.parse()?;
         if input.peek(Token![!]) {
             let _: Token![!] = input.parse()?;
             return Err(hatch_not_applicable(kw.span()));
         }
-        if terminal_seen {
-            return Err(after_terminal_error(kw.span(), "join"));
-        }
+        stage_below_terminal(kw.span(), terminal_seen, "join")?;
         stages.push(parse_join(kw.span(), input)?);
     } else if input.peek(kw::kleisli) {
         let kw: kw::kleisli = input.parse()?;
@@ -245,9 +251,7 @@ fn parse_entry(
             let _: Token![!] = input.parse()?;
             return Err(hatch_not_applicable(kw.span()));
         }
-        if terminal_seen {
-            return Err(after_terminal_error(kw.span(), "kleisli"));
-        }
+        stage_below_terminal(kw.span(), terminal_seen, "kleisli")?;
         stages.extend(parse_kleisli(kw.span(), input)?);
     } else if input.peek(kw::traverse) {
         let kw: kw::traverse = input.parse()?;
@@ -255,9 +259,7 @@ fn parse_entry(
             let _: Token![!] = input.parse()?;
             return Err(hatch_not_applicable(kw.span()));
         }
-        if terminal_seen {
-            return Err(after_terminal_error(kw.span(), "traverse"));
-        }
+        stage_below_terminal(kw.span(), terminal_seen, "traverse")?;
         if traverse_seen {
             return Err(syn::Error::new(
                 kw.span(),
@@ -303,6 +305,16 @@ fn after_terminal_error(span: Span, keyword: &str) -> syn::Error {
              last entry of a pipeline"
         ),
     )
+}
+
+/// The stage-vs-terminal position guard: every non-terminal entry written
+/// below a terminal is rejected, spanned at its own keyword (§6.2). One
+/// line per stage branch, shared by all seven.
+fn stage_below_terminal(span: Span, terminal_seen: bool, keyword: &str) -> syn::Result<()> {
+    if terminal_seen {
+        return Err(after_terminal_error(span, keyword));
+    }
+    Ok(())
 }
 
 /// Spanned diagnostic for a second terminal entry (§6.2).
@@ -435,11 +447,21 @@ fn parse_hatchable_stage(
     }
 }
 
-/// `map:` / `bind:` / `filter:` stage with parse-time barrier annotation.
+/// `map:` / `bind:` / `filter:` / `filter_map:` stage with parse-time
+/// barrier annotation.
+///
+/// The observer scan is kind-aware (§3.2): a `bind` body is scanned for
+/// constructors and methods alike, a `filter_map` body for the shape
+/// methods only — the partial arrow's `Some`/`None` are its effect
+/// constructors, not an observation (§4.3 v0.6).
 fn parse_stage(kind: StageKind, kw_span: Span, input: ParseStream<'_>) -> syn::Result<Stage> {
     let _: Token![:] = input.parse()?;
     let closure: Closure = input.parse()?;
-    let structural_observer = kind == StageKind::Bind && is_structural_observer(&closure.body);
+    let structural_observer = match kind {
+        StageKind::Bind => is_structural_observer(&closure.body),
+        StageKind::FilterMap => is_partial_arrow_observer(&closure.body),
+        _ => false,
+    };
     let fusion_barrier = kind == StageKind::Filter || structural_observer;
     Ok(Stage {
         kind,
@@ -453,12 +475,13 @@ fn parse_stage(kind: StageKind, kw_span: Span, input: ParseStream<'_>) -> syn::R
 }
 
 /// §4.2 escape hatch: `map!: force|materialize <callable>` / the same for
-/// `bind!`.
+/// `bind!` and `filter_map!`.
 ///
-/// - `force` suppresses the structural-observer flag, so the stage fuses
-///   even though its body looks like a container-shape observer. Documented
-///   as unsound if the closure really observes structure. On a `map` it is
-///   accepted but inert (maps are unconditional fusion targets).
+/// - `force` suppresses the observer flag for that stage, so the stage
+///   fuses even though its body looks like a container-shape observer.
+///   Documented as unsound if the closure really observes structure. On a
+///   `map` the hatch is accepted but inert (maps are unconditional fusion
+///   targets).
 /// - `materialize` makes the stage a hard barrier: nothing fuses into it
 ///   and nothing absorbs over it, so the lowering materializes its
 ///   intermediate container through its kernel call.
@@ -482,9 +505,11 @@ fn parse_bang_stage(kind: StageKind, kw_span: Span, input: ParseStream<'_>) -> s
     let structural_observer = match marker {
         // `force` exists to silence exactly this flag (§4.2).
         StageModifier::Force => false,
-        StageModifier::Materialize | StageModifier::None => {
-            kind == StageKind::Bind && is_structural_observer(&closure.body)
-        }
+        StageModifier::Materialize | StageModifier::None => match kind {
+            StageKind::Bind => is_structural_observer(&closure.body),
+            StageKind::FilterMap => is_partial_arrow_observer(&closure.body),
+            _ => false,
+        },
     };
     let fusion_barrier = match marker {
         StageModifier::Force => false,
@@ -981,6 +1006,7 @@ fn is_boundary_keyword(ident: &proc_macro2::Ident) -> bool {
         || ident == "collect"
         || ident == "fold"
         || ident == "filter"
+        || ident == "filter_map"
         || ident == "join"
         || ident == "fold_map"
         || ident == "kleisli"
@@ -1143,12 +1169,6 @@ impl Closure {
 impl Parse for Closure {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         Self::parse_with_arity(input, 1)
-    }
-}
-
-impl ToTokens for Witness {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.path.to_tokens(tokens);
     }
 }
 
