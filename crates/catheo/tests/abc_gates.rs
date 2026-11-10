@@ -10,7 +10,7 @@
 //! and §6.3 budget gates — this file enforces the *deterministic*
 //! consequences of the §6.1 claim, while `benches/abc.rs` is the
 //! measurement instrument whose criterion output is the published
-//! evidence (README, "M3 notes").
+//! evidence (docs/ARCHITECTURE.md §6.1).
 //!
 //! What is enforced here, and why it is equivalent to the §6.1 gate:
 //!
@@ -733,7 +733,8 @@ fn filter_barrier_cost_is_pinned_not_hidden() {
     // collection), so C == B == 0 here, and C still beats A. The Rule-3
     // cost on the filter shape is *temporal* — extra passes over the
     // materialized state — and that is what the criterion suite measures
-    // (README, "M3 notes"). The band guards the future: if a std change
+    // (README milestone table, docs/ARCHITECTURE.md §6.1). The band guards
+    // the future: if a std change
     // or a kernel regression makes the barrier path allocate, this gate
     // flags it for re-review.
     assert_eq!(idiomatic_allocs, 0, "B stays allocation-free");
