@@ -5,6 +5,42 @@ All notable changes to catheo are documented here. The format is based on
 are cut by pushing a `v*.*.*` tag (see `.github/workflows/release.yml`).
 
 <!-- git-cliff: end of header -->
+## [0.7.0] - 2026-11-10
+
+### 🚀 Features
+
+- *(runtime)* ResultWitness joins the equality surface, bound-free
+
+### 🐛 Bug Fixes
+
+- *(parser)* The arity errors pluralize; the header doc tracks fold
+
+### 📚 Documentation
+
+- *(rustdoc)* The closure-header and Rule-2 docs track the grammar
+- *(examples)* The ascribed-witness consumer demo
+- *(rustdoc)* The facade points at the ascribed-witness demo
+- *(readme)* The 0.6.1 truth and the ascribed demo pointers
+- *(architecture)* The barrier bullet, the collect row, the demo list
+
+### 🧪 Testing
+
+- *(ui)* The hatch snapshots track the v0.6 grammar
+- *(examples)* Pin the ascribed-witness consumer gate
+- *(bench)* The 6.1 head-anchor parity suite
+
+### 🔨 Build
+
+- *(bench)* Register the ascription bench target
+
+### ⚙️ Continuous Integration
+
+- Smoke the ascription bench as the eleventh target
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V0.7.0
+
 ## [0.6.1] - 2026-11-10
 
 ### 🐛 Bug Fixes
