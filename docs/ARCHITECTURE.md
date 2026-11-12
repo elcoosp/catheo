@@ -2,7 +2,7 @@
 
 ## Architecture Specification — v0.1
 
-**Status:** Design-complete for the v0.1 prototype; maintained through the v0.6 release (§4.3.1 traverse, §4.3.2 join, §4.4 the strict `Monad` layer, §4.3.3 the partial arrow). Benchmark-gated before any public API commitment.
+**Status:** Design-complete for the v0.1 prototype; maintained through the v0.7 release (§4.3.1 traverse, §4.3.2 join, §4.4 the strict `Monad` layer, §4.3.3 the partial arrow, §4.2 the ascribed-witness surface). Benchmark-gated before any public API commitment.
 **Scope:** A proc-macro-backed categorical pipeline library with a syntax-directed compilation engine and an imperative execution core. Zero-cost on the fast path; explicit fallback otherwise.
 
 ---
@@ -42,6 +42,8 @@ This library occupies the gap: **a functional, category-theoretic API that compi
 │  │ Layer 0: HKT witness pattern (ZSTs, GATs)          │  │
 │  │ Layer 1: Split-Trait Dual-Witness (stable GAT)     │  │
 │  │ Layer 1.5: strict Monad unification (v0.5, §2.4)   │  │
+│  │ Layer 1.6: strict Foldable unification (§2.5)      │  │
+│  │ Layer 1.7: strict Filterable unification (§2.6)    │  │
 │  │ Layer 2: Monomorphized execution kernels           │  │
 │  └───────────────────────────────────────────────────┘  │
 └──────────────────────┬──────────────────────────────────┘
@@ -130,6 +132,14 @@ pub trait Monad: HKT {
 Why additive and not the §5.1 supertrait migration: folding the split traits into a `Monad` **supertrait with default bodies over a generic `Self`** still fails on stable Rust with `E0276`/`E0277` (the shape-generic wall). A fresh per-witness trait with required kernels needs no such normalization — single-level `Self::Type<T>` projections are exactly the shape `rustc` already accepts (`kleisli`, `run_join`). The deliverable is therefore: one trait to bound on at the consumer seam, laws-tested per witness (`tests/v05_gates.rs`), `fmap == run_map` and `join == run_join == bind(id)` pinned against the split kernels, and the allocation profile pinning strict == split-kernel exactly — the abstraction is free. Full surface migration stays tracked against `-Znext-solver` stabilization (§7 limitation 3, §8 roadmap).
 
 The runnable demonstration is `crates/catheo/examples/strict_monad.rs` (the §6.1 observable seam posture: `tracing` spans around the program, `miette` help text on the error path, both dev-only). The traversal boundary stays the §4.3.1 split-kernel discipline — `traverse` is not part of the `Monad` layer, and the example crosses it explicitly.
+
+### 2.5 Layer 1.6 — the Strict `Foldable` Unification
+
+The §2.4 posture applied to the eliminator side: `fold` and `fold_map` in **one** trait (`crates/catheo/src/foldable.rs`), shipped additively after v0.7. Every witness implements the trait by **delegating** to the §2.2 split kernels — `Foldable::fold` is `CategoricalFold::run_fold` verbatim (the required-kernel signature is the split layer's, so a consumer bounding on the split trait migrates without rewriting a call site), and `fold_map` is *provided*, defined as `fold(m, M::identity(), |acc, x| M::combine(acc, f(x)))`. The derivation is sound for every [`Monoid`] because the identity and associativity laws are exactly what make the two lowerings interchangeable for any element order; it is pinned against the split `CategoricalFoldMap::run_fold_map` kernel per witness over the deterministic xorshift sweep (`tests/foldable_gates.rs`), with the allocation profile pinning strict == split-kernel exactly (the abstraction is free; §2.3). The delegation monomorphizes into the §2.2 kernels, so no `#[inline(always)]` carries on the delegation sites. The runnable demonstration is `crates/catheo/examples/foldable_surface.rs` (the same observable seam posture as `strict_monad`).
+
+### 2.6 Layer 1.7 — the Strict `Filterable` Unification
+
+The §2.4 posture applied to the partial-arrow side: `filter_map` and `filter` in **one** trait (`crates/catheo/src/filterable.rs`), shipped additively after v0.7. The required kernel `Filterable::filter_map` is `CategoricalFilterMap::run_filter_map` verbatim, and `filter` is *provided*, defined as `filter_map(m, |x| if p(&x) { Some(x) } else { None })` — keep-or-drop *is* a partial arrow whose kept arm is the identity (§4.3.3); the derivation is pinned against the split `CategoricalFilter::run_filter` kernel per witness (`tests/filterable_gates.rs`), alongside the trivial-predicate laws (identity, empty), idempotence, and composition, with the allocation profile pinning strict == split-kernel exactly. The trait is implemented for `VecWitness` and `OptionWitness` **only**, mirroring the split kernels: a dropped `Ok` has no error-free denotation, and a partial arrow over `Result` would have to fabricate an `Err` value the user never produced (§4.3.3) — the absence is pinned by a compile-fail doctest on the trait. The runnable demonstration is `crates/catheo/examples/filterable_surface.rs`.
 
 ---
 
@@ -451,6 +461,8 @@ Pipelines exceeding the token budget fall back to the sequential lowering — by
 | **v0.4** | `join` — the §4.3 monadic multiplication on the pipeline surface | §6.1 gates re-applied (deterministic forms in `tests/v04_gates.rs`) |
 | **v0.5** | the strict `Monad` layer — the §2.4/§4.4 one-trait unification, additive | §6.1 gates re-applied (laws + allocation profile in `tests/v05_gates.rs`; pointwise verdict in `benches/monad.rs`); surface migration still tracked against `-Znext-solver` |
 | **v0.6** | `filter_map` — the §4.3.3 partial arrow, additive over the kernel set | §6.1 gates re-applied (value + allocation profile in `tests/v06_gates.rs`; three-way verdict in `benches/filter_map.rs`: C ≈ B, C > A) |
+| **v0.6.1** | the truth sweep — the §4.2 hatch-matrix demo, the entry-vocabulary diagnostic, the ui-count truth | consumer + release gates re-pinned (`tests/consumer_examples.rs`, `tests/release_gates.rs`) |
+| **v0.7.0** | the ascribed-witness consumer demo and its §6.1 head-anchor parity bench; `ResultWitness` joins the equality surface, bound-free | §6.1 parity measured (`benches/ascription.rs`: the derived head ≈ the `witness:` head); consumer + release gates re-pinned |
 
 **M3 is the decision gate.** If the macro-flattened output does not match idiomatic iterator chains on at least the map-heavy and fold-heavy pipelines, the architecture returns to design review. No public API is committed until M3 passes.
 
