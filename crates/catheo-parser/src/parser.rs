@@ -858,10 +858,9 @@ fn unknown_entry_error(input: ParseStream<'_>) -> syn::Error {
          `filter`, `filter_map`, `filter_map!`, `join`, `kleisli`, \
          `traverse`, `fold`, `fold_map`, or `collect`";
     match input.cursor().token_tree() {
-        Some((TokenTree::Ident(ident), _)) => syn::Error::new(
-            ident.span(),
-            format!("{VOCABULARY}, found `{ident}`"),
-        ),
+        Some((TokenTree::Ident(ident), _)) => {
+            syn::Error::new(ident.span(), format!("{VOCABULARY}, found `{ident}`"))
+        }
         Some((tt, _)) => syn::Error::new(tt.span(), VOCABULARY),
         // Invariant tripwire, unreachable from the entry loop: if this ever
         // fires, the loop changed shape and grew an empty-cursor call — say
@@ -1123,7 +1122,11 @@ impl Closure {
         // The noun pluralizes with the arity: `fold`'s two-parameter shape
         // reads "exactly two parameters", the stage shape "exactly one
         // parameter" (the §6.2 posture — a rejection is never a riddle).
-        let arity_noun = if arity == 1 { "parameter" } else { "parameters" };
+        let arity_noun = if arity == 1 {
+            "parameter"
+        } else {
+            "parameters"
+        };
         let _open: Token![|] = input.parse()?;
         if input.peek(Token![|]) {
             let empty: Token![|] = input.parse()?;
