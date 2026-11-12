@@ -370,13 +370,18 @@ fn the_only_declared_extern_crate_is_the_facade_self_alias() {
     // tree declares no other `extern crate`, so the allowance can never
     // silently license a second one.
     let mut sites: Vec<String> = Vec::new();
-    let sources: [(&str, &str); 5] = [
+    let sources: [(&str, &str); 7] = [
         ("crates/catheo/src/lib.rs", "catheo/src/lib.rs"),
         (
             "crates/catheo/src/categorical.rs",
             "catheo/src/categorical.rs",
         ),
         ("crates/catheo/src/monad.rs", "catheo/src/monad.rs"),
+        ("crates/catheo/src/foldable.rs", "catheo/src/foldable.rs"),
+        (
+            "crates/catheo/src/filterable.rs",
+            "catheo/src/filterable.rs",
+        ),
         ("crates/catheo/src/witness.rs", "catheo/src/witness.rs"),
         ("crates/catheo/src/hkt.rs", "catheo/src/hkt.rs"),
     ];
