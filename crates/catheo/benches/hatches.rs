@@ -75,7 +75,7 @@ fn force_unfused(input: Vec<Vec<i32>>) -> i64 {
 fn force_idiomatic(input: Vec<Vec<i32>>) -> i64 {
     input
         .into_iter()
-        .map(|row| row.iter().sum::<i32>())
+        .map(|row| i64::from(row.iter().sum::<i32>()))
         .sum::<i64>()
 }
 
