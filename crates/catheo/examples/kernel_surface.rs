@@ -30,7 +30,7 @@ use thiserror::Error;
 /// The miette attributes are the consumer-facing diagnostic: a code for
 /// machine handling and help text that names the fix (§6.2 posture — a
 /// rejection is never a riddle).
-#[derive(Debug, Error, Diagnostic)]
+#[derive(Debug, Error, Diagnostic, PartialEq, Eq)]
 #[error("`{input}` is out of the kernel domain")]
 #[diagnostic(
     code(catheo::out_of_domain),
@@ -55,11 +55,7 @@ fn widen(x: i32) -> i64 {
 /// The `Some`/`None` constructors are the arrow's effect, not an
 /// observation of the container it is fed.
 fn keep_even(x: i32) -> Option<i64> {
-    if x % 2 == 0 {
-        Some(i64::from(x))
-    } else {
-        None
-    }
+    if x % 2 == 0 { Some(i64::from(x)) } else { None }
 }
 
 /// A Kleisli morphism `i32 -> Result<i64, OutOfDomain>`: halve, or reject
@@ -77,8 +73,7 @@ fn checked_half(x: i32) -> Result<i64, OutOfDomain> {
 /// A second Kleisli morphism `i64 -> Result<i64, OutOfDomain>`: succeed by
 /// one, or overflow.
 fn checked_add_one(x: i64) -> Result<i64, OutOfDomain> {
-    x.checked_add(1)
-        .ok_or_else(|| OutOfDomain { input: x })
+    x.checked_add(1).ok_or(OutOfDomain { input: x })
 }
 
 /// A user-defined `Monoid`: two metrics in one accumulator, combined
@@ -177,13 +172,13 @@ fn main() {
         checked_half,
         checked_add_one,
     );
-    let warm: Result<i64, OutOfDomain> = chain(Ok(84_i32));
+    let warm: Result<i64, OutOfDomain> = chain(84_i32);
     assert_eq!(warm, Ok(43));
     println!("kleisli chain (warm): {warm:?}");
 
     // The chain never reaches the second morphism on a failure: the error
     // carries the offending input, rendered with its help text.
-    let cold: Result<i64, OutOfDomain> = chain(Ok(7_i32));
+    let cold: Result<i64, OutOfDomain> = chain(7_i32);
     match cold {
         Ok(value) => println!("kleisli chain (cold): {value:?}"),
         Err(err) => {
@@ -195,12 +190,11 @@ fn main() {
     // ── A user-defined Monoid, the fold_map algebra (§4.3 v0.2) ────────────
     let span = tracing::info_span!("kernel.fold_map", elements = input.len());
     let _guard = span.enter();
-    let metrics = <VecWitness as CategoricalFoldMap>::run_fold_map(input.clone(), |x: i32| {
-        Metrics {
+    let metrics =
+        <VecWitness as CategoricalFoldMap>::run_fold_map(input.clone(), |x: i32| Metrics {
             count: 1,
             total: i64::from(x),
-        }
-    });
+        });
     assert_eq!(
         metrics,
         Metrics {
