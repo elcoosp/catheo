@@ -68,3 +68,11 @@ harness = false
 [[bench]]
 name = "ascription"
 harness = false
+
+[[bench]]
+name = "foldable"
+harness = false
+
+[[bench]]
+name = "filterable"
+harness = false
