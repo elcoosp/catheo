@@ -4,7 +4,7 @@
 //!
 //! A proc-macro library sells a *demonstration* as much as an API: the
 //! crate-level rustdoc points consumers at runnable examples, so this gate
-//! keeps the pointer honest. Ten demos are pinned:
+//! keeps the pointer honest. Twelve demos are pinned:
 //!
 //! - `quickstart.rs` — the README quickstart, runnable;
 //! - `fallible_pipeline.rs` — the traversal boundary over a `Result` effect;
@@ -40,6 +40,16 @@
 //!   qualified `std::vec::Vec<…>` spelling), with no `witness:` entry and
 //!   no witness identifier anywhere in the file, in the observable seam
 //!   posture.
+//! - `foldable_surface.rs` — the strict `Foldable` layer: one generic
+//!   program over one `Foldable` bound (`fold` required, `fold_map`
+//!   derived) run across every witness, eliminating into a user-defined
+//!   `Monoid`, with the `Err`-contributes-identity denotation
+//!   demonstrated and the house observable seam around it.
+//! - `filterable_surface.rs` — the strict `Filterable` layer: one generic
+//!   program over one `Filterable` bound (`filter_map` required,
+//!   `filter` derived) run across both admitting witnesses, the trivial
+//!   -predicate laws demonstrated, and the fallible boundary validated
+//!   through the traversal kernel with the house observable seam.
 //!
 //! plus the README and the crate rustdoc must both link the directory.
 
@@ -383,6 +393,98 @@ fn the_ascribed_witness_demo_derives_every_builtin_witness() {
     );
     assert!(
         demo.contains("--example ascribed_witnesses"),
+        "the demo documents its own run line"
+    );
+}
+
+/// The §2.4 posture, fold side: the strict `Foldable` layer is published
+/// (`foldable.rs` carries the trait and its derivation rationale, the
+/// facade exports it) — but no runnable demo ever eliminated through the
+/// one-trait bound. This gate pins the runnable truth: one demo drives
+/// `fold` and the derived `fold_map` through a single generic program
+/// across every witness, into a user `Monoid`, with the identity
+/// denotation demonstrated.
+#[test]
+fn the_foldable_demo_carries_the_one_bound_eliminator() {
+    let demo = example("foldable_surface.rs");
+    assert!(
+        demo.contains("Foldable"),
+        "the foldable demo bounds on the strict one-trait eliminator surface"
+    );
+    assert!(
+        demo.contains("W::fold_map") && demo.contains("as Foldable>::fold"),
+        "the foldable demo drives the required `fold` and the derived \
+         `fold_map` through the unified trait"
+    );
+    assert!(
+        demo.contains("VecWitness")
+            && demo.contains("OptionWitness")
+            && demo.contains("ResultWitness"),
+        "the one-bound eliminator runs across every witness, not only `Vec`"
+    );
+    assert!(
+        demo.contains("impl Monoid"),
+        "the demo eliminates into a user `Monoid` — the derivation's \
+         any-Monoid promise, substantiated"
+    );
+    assert!(
+        demo.contains("identity"),
+        "the demo demonstrates the `Err`-contributes-identity denotation"
+    );
+    assert!(
+        demo.contains("tracing::"),
+        "the foldable demo spans its sections like the instrumented demo"
+    );
+    assert!(
+        demo.contains("help"),
+        "the fallible fold path carries miette help text, not a bare message"
+    );
+    assert!(
+        demo.contains("--example foldable_surface"),
+        "the demo documents its own run line"
+    );
+}
+
+/// The §2.4 posture, partial-arrow side: the strict `Filterable` layer is
+/// published (`filterable.rs` carries the trait, its derivation, and the
+/// §4.3.3 exclusion doctest, the facade exports it) — but no runnable
+/// demo ever kept through the one-trait bound. This gate pins the
+/// runnable truth: one demo drives `filter_map` and the derived `filter`
+/// through a single generic program across both admitting witnesses,
+/// with the fallible boundary on the traversal kernel.
+#[test]
+fn the_filterable_demo_carries_the_one_bound_partial_arrow() {
+    let demo = example("filterable_surface.rs");
+    assert!(
+        demo.contains("Filterable"),
+        "the filterable demo bounds on the strict one-trait partial-arrow \
+         surface"
+    );
+    assert!(
+        demo.contains("W::filter_map") && demo.contains("W::filter"),
+        "the filterable demo drives the required `filter_map` and the \
+         derived `filter` through the unified trait"
+    );
+    assert!(
+        demo.contains("VecWitness") && demo.contains("OptionWitness"),
+        "the one-bound arrow runs across both admitting witnesses"
+    );
+    assert!(
+        demo.contains("run_traverse"),
+        "the fallible boundary rides the §4.3 v0.3 traversal kernel — the \
+         layer composes with the split kernels it delegates to"
+    );
+    assert!(
+        demo.contains("tracing::"),
+        "the filterable demo spans its sections like the instrumented demo"
+    );
+    assert!(
+        demo.contains("help"),
+        "the fallible traverse path carries miette help text, not a bare \
+         message"
+    );
+    assert!(
+        demo.contains("--example filterable_surface"),
         "the demo documents its own run line"
     );
 }
