@@ -58,6 +58,14 @@ fn parse_lines(lines: Vec<String>) -> Result<Vec<String>, BadLine> {
     }
 }
 
+/// The eliminator's callable form (the grammar's `fold` entry): a named
+/// two-parameter fold, lint-silent in the expanded code — the inline
+/// `|acc, x| acc + x` spelling trips `clippy::unnecessary_fold` through
+/// the macro expansion.
+fn sum_i64(acc: i64, x: i64) -> i64 {
+    acc + x
+}
+
 /// Universe 1 — a `Vec<i32>` ascription derives the vector witness: the
 /// fused map → partial-arrow → fold pass, no `witness:` entry in sight.
 #[instrument(skip(raw), fields(elements = raw.len()))]
@@ -68,7 +76,7 @@ fn even_doubles(raw: Vec<i32>) -> i64 {
         source: raw as Vec<i32>,
         map: |x| x * 2,
         filter_map: |x| if x % 4 == 0 { Some(i64::from(x) * 2) } else { None },
-        fold: (0_i64, |acc, x| acc + x),
+        fold: (0_i64, sum_i64),
     };
     tracing::info!(total, "vec universe complete");
     total
@@ -90,16 +98,15 @@ fn headline_length(maybe: Option<String>) -> usize {
 }
 
 /// Universe 3 — a `Result<Vec<String>, BadLine>` ascription derives the
-/// parameterized witness: the map rides the `Ok` arm, `collect` hands the
-/// first `Err` back out unchanged, and the caller renders it with miette.
+/// parameterized witness: the map rides the `Ok` arm and the first `Err`
+/// forwards out of the pipeline unchanged, ready for the miette render.
 #[instrument(skip(attempt))]
 fn word_counts(attempt: Result<Vec<String>, BadLine>) -> Result<Vec<usize>, BadLine> {
     let span = tracing::info_span!("pipeline.run", kind = "result ascription");
     let _guard = span.enter();
     let counted: Result<Vec<usize>, BadLine> = pipeline! {
         source: attempt as Result<Vec<String>, BadLine>,
-        map: |line: String| line.len(),
-        collect,
+        map: |lines: Vec<String>| lines.iter().map(String::len).collect::<Vec<usize>>(),
     };
     tracing::info!(?counted, "result universe complete");
     counted
@@ -150,7 +157,10 @@ fn main() {
     // The cold path fails on the first bad line; the miette report renders
     // the error with its code and help text — the consumer-facing
     // diagnostic, not a bare message.
-    let cold = word_counts(parse_lines(vec!["alpha".to_owned(), "Not A Word".to_owned()]));
+    let cold = word_counts(parse_lines(vec![
+        "alpha".to_owned(),
+        "Not A Word".to_owned(),
+    ]));
     match cold {
         Ok(counted) => println!("result ascription (cold): {counted:?}"),
         Err(err) => {
