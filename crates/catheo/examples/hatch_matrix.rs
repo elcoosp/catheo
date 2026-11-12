@@ -178,6 +178,13 @@ fn row_oracle() {
     println!("oracle agreement on the forced bind: {fused}");
 }
 
+/// The partial arrow of the fallible row: keep the positives. The named
+/// arrow is the §6.1 spelling posture — a callable form is lint-silent in
+/// the expanded adapter chain.
+fn keep_positive(x: i32) -> Option<i32> {
+    if x > 0 { Some(x) } else { None }
+}
+
 /// The fallible row: the forced partial arrow prunes nothing here, the
 /// bound rejects a record, and the miette report renders the code and the
 /// help text — the observable seam, not a bare message.
@@ -187,7 +194,7 @@ fn row_fallible() {
     let cold: Result<Vec<i32>, OutOfRange> = pipeline! {
         witness: VecWitness,
         source: vec![41_i32, 70_000],
-        filter_map!: force |x: i32| if x > 0 { Some(x) } else { None },
+        filter_map!: force keep_positive,
         traverse: (ResultWitness::<OutOfRange>, check_u16),
         collect,
     };
