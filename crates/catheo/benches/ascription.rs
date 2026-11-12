@@ -23,7 +23,7 @@
 //! derivation is compile-time only, so the two expansions are
 //! token-identical modulo the head binding's `: Type` annotation (the
 //! user's spelled type re-anchors the expression, §4.2) — and both ≈ B
-//! (the kernels *are* the std spellings; the §6.1 filter_map record),
+//! (the kernels *are* the std spellings; the §6.1 `filter_map` record),
 //! both > A. The deterministic consequences (allocation profiles,
 //! fused-emission shape) stay with the gate suites (`tests/v02_gates.rs`,
 //! §6.1 posture: wall-clock is never the CI gate).
@@ -53,9 +53,9 @@ fn scalar_input(size: usize) -> Vec<i32> {
 
 /// A: the naive spelling — one materialized container per stage.
 fn naive(input: Vec<i32>) -> i64 {
-    let doubled: Vec<i64> = input.iter().map(|x| i64::from(*x) * 2).collect();
+    let doubled: Vec<i64> = input.into_iter().map(|x| i64::from(x) * 2).collect();
     let kept: Vec<i64> = doubled.into_iter().filter(|x| x % 4 == 0).collect();
-    kept.into_iter().fold(0_i64, |acc, x| acc + x)
+    kept.into_iter().fold(0_i64, sum_fold)
 }
 
 /// B: the idiomatic spelling — the std chain.
@@ -67,14 +67,27 @@ fn idiomatic(input: Vec<i32>) -> i64 {
         .sum::<i64>()
 }
 
+/// The partial arrow of both C routines: keep the multiples of four. The
+/// named-arrow spelling posture of the §6.1 suites (`benches/filter_map.rs`
+/// lockstep): a callable form is lint-silent in the expanded adapter chain.
+fn keep_quadruple(x: i64) -> Option<i64> {
+    if x % 4 == 0 { Some(x) } else { None }
+}
+
+/// The eliminator every routine shares (the callable form: the grammar's
+/// `fold` entry, lint-silent in the expanded code).
+fn sum_fold(acc: i64, x: i64) -> i64 {
+    acc + x
+}
+
 /// C, witness-spelled: the head anchored by the `witness:` entry (§4.1).
 fn macro_witness(input: Vec<i32>) -> i64 {
     catheo::pipeline! {
         witness: VecWitness,
         source: input,
         map: |x| i64::from(x) * 2,
-        filter_map: |x| if x % 4 == 0 { Some(x) } else { None },
-        fold: (0_i64, |acc, x| acc + x),
+        filter_map: keep_quadruple,
+        fold: (0_i64, sum_fold),
     }
 }
 
@@ -85,8 +98,8 @@ fn macro_ascribed(input: Vec<i32>) -> i64 {
     catheo::pipeline! {
         source: input as Vec<i32>,
         map: |x| i64::from(x) * 2,
-        filter_map: |x| if x % 4 == 0 { Some(x) } else { None },
-        fold: (0_i64, |acc, x| acc + x),
+        filter_map: keep_quadruple,
+        fold: (0_i64, sum_fold),
     }
 }
 
