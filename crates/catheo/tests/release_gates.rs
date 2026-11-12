@@ -254,7 +254,10 @@ fn readme_trybuild_counts_track_the_ui_suite() {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if !name.ends_with(".rs") {
+        if !std::path::Path::new(name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
+        {
             continue;
         }
         if name.starts_with("pass_") {
