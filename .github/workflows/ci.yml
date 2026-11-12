@@ -71,6 +71,8 @@ jobs:
       - run: cargo bench -p catheo --bench filter_map -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
       - run: cargo bench -p catheo --bench hatches -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
       - run: cargo bench -p catheo --bench ascription -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
+      - run: cargo bench -p catheo --bench foldable -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
+      - run: cargo bench -p catheo --bench filterable -- --warm-up-time 0.3 --measurement-time 1 --sample-size 15
 
   macro-stats:
     name: nightly -Zmacro-stats (§5.3)
