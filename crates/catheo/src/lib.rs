@@ -5,8 +5,11 @@
 //! `docs/ARCHITECTURE.md`). This crate is the user-facing facade: it
 //! re-exports the [`pipeline!`] macro, the runtime layer (witnesses,
 //! split-trait kernels, the v0.6 partial arrow [`CategoricalFilterMap`],
-//! and the v0.5 strict [`Monad`] unification that delegates to those
-//! kernels) that the macro's generated code calls into. The runnable
+//! the v0.5 strict [`Monad`] unification that delegates to those kernels,
+//! and the same additive posture extended to the eliminator and
+//! partial-arrow sides — [`Foldable`] (`fold` required, `fold_map`
+//! derived) and [`Filterable`] (`filter_map` required, `filter` derived))
+//! that the macro's generated code calls into. The runnable
 //! consumer demos live in `crates/catheo/examples/`: `quickstart` (the
 //! README snippet), `fallible_pipeline` (the §4.3 traversal boundary),
 //! `monadic_surface` (the monadic surface — `join` and `fold_map`),
@@ -24,7 +27,11 @@
 //! user-defined [`Monoid`], no macro in sight). The §4.2 hatch matrix —
 //! all six accepted spellings (`map!`, `bind!`, `filter_map!`, each ×
 //! `force`/`materialize`), value-checked across the rows and oracle-paired
-//! — is `hatch_matrix`.
+//! — is `hatch_matrix`. The strict-layer unifications carry their own
+//! demos: `foldable_surface` (the eliminator side — one [`Foldable`]
+//! bound across every witness, into a user [`Monoid`]) and
+//! `filterable_surface` (the partial-arrow side — one [`Filterable`]
+//! bound across both admitting witnesses).
 //!
 //! ```
 //! use catheo::{pipeline, VecWitness};
@@ -48,6 +55,8 @@
 extern crate self as catheo;
 
 pub mod categorical;
+pub mod filterable;
+pub mod foldable;
 pub mod hkt;
 pub mod monad;
 pub mod witness;
@@ -58,6 +67,8 @@ pub use categorical::{
     CategoricalTraverse, Monoid, kleisli,
 };
 pub use catheo_macros::{pipeline, pipeline_unfused};
+pub use filterable::Filterable;
+pub use foldable::Foldable;
 pub use hkt::HKT;
 pub use monad::Monad;
 pub use witness::{OptionWitness, ResultWitness, VecWitness};
